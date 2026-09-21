@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.system.template/events/event-envelope.json",
+  "title": "CloudEventEnvelope",
+  "description": "CloudEvents v1.0 compliant envelope specification for Google Cloud Pub/Sub message payloads",
+  "type": "object",
+  "required": [
+    "specversion",
+    "id",
+    "source",
+    "type",
+    "time",
+    "datacontenttype",
+    "data"
+  ],
+  "properties": {
+    "specversion": {
+      "type": "string",
+      "enum": ["1.0"],
+      "description": "The version of the CloudEvents specification which the event uses."
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "description": "Identifies the event uniquely. Must be a valid UUIDv4 string."
+    },
+    "source": {
+      "type": "string",
+      "format": "uri-reference",
+      "minLength": 1,
+      "description": "Identifies the context in which an event happened (e.g. URI reference /urn:uuid:... or https://service.domain/context)."
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+(\\.[a-zA-Z0-9_-]+)+$",
+      "description": "Describes the type of event related to the originating occurrence (reverse-DNS string e.g. com.system.task.created.v1)."
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Describes the subject of the event in the context of the event producer (e.g. task UUID or entity path)."
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+      "description": "Timestamp of when the occurrence happened adhering to RFC 3339 / ISO 8601."
+    },
+    "datacontenttype": {
+      "type": "string",
+      "enum": ["application/json"],
+      "description": "Content type of the data value. Must be application/json."
+    },
+    "dataschema": {
+      "type": "string",
+      "format": "uri-reference",
+      "description": "Identifies the schema that data adheres to."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^00-[0-9a-fA-F]{32}-[0-9a-fA-F]{16}-[0-9a-fA-F]{2}$",
+      "description": "W3C Trace Context traceparent header enabling distributed end-to-end tracing across async message boundaries."
+    },
+    "tracestate": {
+      "type": "string",
+      "description": "W3C Trace Context tracestate header providing vendor-specific tracing routing information."
+    },
+    "data": {
+      "type": "object",
+      "description": "The event payload data conforming to the schema associated with the event type."
+    }
+  },
+  "additionalProperties": false
+}
