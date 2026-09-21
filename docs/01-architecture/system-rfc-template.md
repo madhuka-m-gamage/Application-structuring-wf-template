@@ -1,7 +1,7 @@
 ---
 title: "System Architecture RFC: {{SYSTEM_NAME}}"
 author: "{{AUTHOR_NAME_OR_AGENT}}"
-date: "{{DATE_YYYY_MM_DD}}"
+date: "2026-09-21"
 status: "PROPOSED" # Options: DRAFT | PROPOSED | IN_REVIEW | ACCEPTED | REJECTED | SUPERSEDED
 version: "1.0.0"
 pass: 2

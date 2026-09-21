@@ -1,7 +1,7 @@
 ---
 title: "Success Metrics & SLO Framework: {{SYSTEM_NAME}}"
 author: "{{AUTHOR_NAME_OR_AGENT}}"
-date: "{{DATE_YYYY_MM_DD}}"
+date: "2026-09-21"
 status: "DRAFT" # Options: DRAFT | IN_REVIEW | APPROVED | REVISED
 version: "1.0.0"
 pass: "Pass 1: Macro Domain & System Context Expansion"

@@ -44,7 +44,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check WIF Secrets Configuration
+        id: check-wif
+        run: |
+          if [ -z "${{ env.WIF_PROVIDER }}" ] || [ -z "${{ env.WIF_SERVICE_ACCOUNT }}" ]; then
+            echo "::notice title=WIF Not Configured::Workload Identity Federation credentials (GCP_WIF_PROVIDER and GCP_WIF_SERVICE_ACCOUNT) are not configured in repository secrets. Skipping automated deployment. See USER-GUIDE.md for setup instructions."
+            echo "configured=false" >> $GITHUB_OUTPUT
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Authenticate to Google Cloud via WIF (Keyless)
+        if: steps.check-wif.outputs.configured == 'true'
         id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -52,14 +63,17 @@ jobs:
           service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
+        if: steps.check-wif.outputs.configured == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker Authentication for Google Artifact Registry
+        if: steps.check-wif.outputs.configured == 'true'
         run: |
           echo "▶ Configuring Docker credential helper for Artifact Registry..."
           gcloud auth configure-docker "${{ env.GCP_REGION }}-docker.pkg.dev" --quiet
 
       - name: Build, Tag & Push Container Images to Artifact Registry
+        if: steps.check-wif.outputs.configured == 'true'
         run: |
           REGISTRY="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}"
           echo "▶ Target Artifact Registry: $REGISTRY"
@@ -77,6 +91,7 @@ jobs:
           done
 
       - name: Deploy API Service to Cloud Run (Staging)
+        if: steps.check-wif.outputs.configured == 'true'
         id: deploy-api
         run: |
           SERVICE_NAME="${{ env.SERVICE_PREFIX }}-api-staging"
@@ -96,6 +111,7 @@ jobs:
           echo "api_url=$API_URL" >> $GITHUB_OUTPUT
 
       - name: Deploy Worker Service to Cloud Run (Staging)
+        if: steps.check-wif.outputs.configured == 'true'
         id: deploy-worker
         run: |
           SERVICE_NAME="${{ env.SERVICE_PREFIX }}-worker-staging"
@@ -115,6 +131,7 @@ jobs:
           echo "worker_url=$WORKER_URL" >> $GITHUB_OUTPUT
 
       - name: Deploy Web Service to Cloud Run (Staging)
+        if: steps.check-wif.outputs.configured == 'true'
         id: deploy-web
         run: |
           SERVICE_NAME="${{ env.SERVICE_PREFIX }}-web-staging"
@@ -135,6 +152,7 @@ jobs:
           echo "web_url=$WEB_URL" >> $GITHUB_OUTPUT
 
       - name: Automated Staging Health Check Verification
+        if: steps.check-wif.outputs.configured == 'true'
         run: |
           echo "▶ Performing automated post-deployment health check verification on Staging..."
 

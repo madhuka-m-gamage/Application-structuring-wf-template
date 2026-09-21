@@ -25,7 +25,8 @@ ENV NODE_ENV=production \
     PORT=8080 \
     HOST=0.0.0.0
 
-RUN addgroup -g 10001 -S appgroup && \
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn* && \
+    addgroup -g 10001 -S appgroup && \
     adduser -u 10001 -S appuser -G appgroup
 
 COPY --from=builder --chown=appuser:appgroup /app /app
