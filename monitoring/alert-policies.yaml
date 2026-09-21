@@ -1,0 +1,312 @@
+# ==============================================================================
+# Google Cloud Monitoring Alert Policies
+# System Design-to-Deployment Workflow Template
+# Target: Production Environment (Cloud Run, Cloud Pub/Sub, Cloud SQL)
+# Schema: Google Cloud Monitoring API v3 AlertPolicy Specification
+# ==============================================================================
+# Deployment Instructions:
+# 1. Via gcloud CLI:
+#    gcloud alpha monitoring policies create --policy-from-file=monitoring/alert-policies.yaml
+# 2. Via Terraform:
+#    Integrate via infra/modules/monitoring or google_monitoring_alert_policy resources.
+# ==============================================================================
+
+policies:
+
+  # ----------------------------------------------------------------------------
+  # Policy 1: High HTTP 5xx Error Rate on Cloud Run API
+  # Triggers when 5xx errors exceed 2% of total requests over a 5-minute window
+  # ----------------------------------------------------------------------------
+  - displayName: "API Service - High HTTP 5xx Error Rate (> 2%)"
+    enabled: true
+    combiner: "OR"
+    severity: "CRITICAL"
+    userLabels:
+      service: "api"
+      component: "cloud-run"
+      environment: "production"
+      tier: "ingress"
+      slo_impact: "availability"
+    documentation:
+      mimeType: "text/markdown"
+      content: |
+        ## High HTTP 5xx Error Rate Detected
+        The API service (`template-api`) is returning HTTP 5xx responses for more than **2% of total traffic** over a 5-minute rolling window.
+
+        ### Immediate Mitigation Steps:
+        1. **Check Error Logs**:
+           ```bash
+           gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="template-api" AND severity>=ERROR' --limit=50 --format=json
+           ```
+        2. **Assess Blast Radius**: Determine if errors are isolated to a new revision or affecting all traffic.
+        3. **Execute Emergency Rollback** if triggered following a recent deployment:
+           ```bash
+           # Check active revisions
+           gcloud run services describe template-api --region=us-central1 --format='value(status.traffic)'
+           # Roll back 100% traffic to last known healthy revision
+           gcloud run services update-traffic template-api --region=us-central1 --to-revisions=PREVIOUS_HEALTHY_REVISION=100
+           ```
+        4. Consult the full SOP in [docs/03-operations/incident-runbook.md](file:///home/madhuka/VScode%20Projects/Application-structuring-wf-template/docs/03-operations/incident-runbook.md).
+    conditions:
+      - displayName: "HTTP 5xx error ratio > 0.02 over 5m"
+        conditionThreshold:
+          filter: >-
+            resource.type = "cloud_run_revision" AND
+            resource.labels.service_name = "template-api" AND
+            metric.type = "run.googleapis.com/request_count" AND
+            metric.labels.response_code_class = "5xx"
+          denominatorFilter: >-
+            resource.type = "cloud_run_revision" AND
+            resource.labels.service_name = "template-api" AND
+            metric.type = "run.googleapis.com/request_count"
+          comparison: "COMPARISON_GT"
+          thresholdValue: 0.02
+          duration: "300s"
+          trigger:
+            count: 1
+          aggregations:
+            - alignmentPeriod: "60s"
+              perSeriesAligner: "ALIGN_RATE"
+              crossSeriesReducer: "REDUCE_SUM"
+              groupByFields:
+                - "resource.labels.service_name"
+
+  # ----------------------------------------------------------------------------
+  # Policy 2: Elevated Latency Spike (p99 > 1000ms on Cloud Run API)
+  # Triggers when 99th percentile request latency exceeds 1 second
+  # ----------------------------------------------------------------------------
+  - displayName: "API Service - High Latency Spike (p99 > 1000ms)"
+    enabled: true
+    combiner: "OR"
+    severity: "WARNING"
+    userLabels:
+      service: "api"
+      component: "cloud-run"
+      environment: "production"
+      tier: "ingress"
+      slo_impact: "latency"
+    documentation:
+      mimeType: "text/markdown"
+      content: |
+        ## API Latency Spike Detected
+        The 99th percentile (p99) request latency on `template-api` has exceeded **1000ms** for 5 consecutive minutes.
+
+        ### Diagnostic Steps:
+        1. **Check Database Connection Pool & Slow Queries**:
+           Verify if Cloud SQL CPU is elevated or connection locks are present:
+           ```bash
+           gcloud sql instances describe template-pg-prod --format="value(settings.tier,state)"
+           ```
+        2. **Inspect Slow Requests in Cloud Logging**:
+           ```bash
+           gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="template-api" AND httpRequest.latency > "1.0s"' --limit=20
+           ```
+        3. **Check Cloud Run Autoscaling & CPU Saturation**:
+           Check if instances are hitting max concurrency or memory limits:
+           ```bash
+           gcloud run services describe template-api --region=us-central1 --format='yaml(spec.template.spec.containers)'
+           ```
+        4. Refer to latency remediation runbook in [docs/03-operations/incident-runbook.md](file:///home/madhuka/VScode%20Projects/Application-structuring-wf-template/docs/03-operations/incident-runbook.md).
+    conditions:
+      - displayName: "p99 latency > 1000ms over 5m"
+        conditionThreshold:
+          filter: >-
+            resource.type = "cloud_run_revision" AND
+            resource.labels.service_name = "template-api" AND
+            metric.type = "run.googleapis.com/request_latencies"
+          comparison: "COMPARISON_GT"
+          thresholdValue: 1000
+          duration: "300s"
+          trigger:
+            count: 1
+          aggregations:
+            - alignmentPeriod: "60s"
+              perSeriesAligner: "ALIGN_PERCENTILE_99"
+              crossSeriesReducer: "REDUCE_MAX"
+              groupByFields:
+                - "resource.labels.service_name"
+
+  # ----------------------------------------------------------------------------
+  # Policy 3: Container CrashLoop / Frequent Restarts
+  # Triggers when container restart or abnormal termination count exceeds 3 in 10 mins
+  # ----------------------------------------------------------------------------
+  - displayName: "Cloud Run - Container CrashLoop / Frequent Restarts (> 3 in 10m)"
+    enabled: true
+    combiner: "OR"
+    severity: "CRITICAL"
+    userLabels:
+      service: "api"
+      component: "cloud-run"
+      environment: "production"
+      tier: "compute"
+      slo_impact: "availability"
+    documentation:
+      mimeType: "text/markdown"
+      content: |
+        ## Cloud Run Container CrashLoop Detected
+        Instances of the Cloud Run service are restarting frequently (> 3 terminations in 10 minutes).
+        This typically indicates an unhandled exception, OOM (Out Of Memory) event, failed startup probe, or missing secret.
+
+        ### Diagnostic Steps:
+        1. **Search for Container Exit Logs & OOM Events**:
+           ```bash
+           gcloud logging read 'resource.type="cloud_run_revision" AND (textPayload=~"Memory limit exceeded" OR textPayload=~"Container terminated with exit code" OR severity>=ERROR)' --limit=30
+           ```
+        2. **Verify Environment Variables & Secret Access**:
+           Ensure all required secrets in Secret Manager (`DATABASE_URL`, JWT signing keys) are valid and accessible by the Cloud Run service account.
+        3. **Review Startup Health Probes**:
+           Verify that `/healthz` responds within the probe timeout window during cold start.
+        4. Refer to crash diagnosis SOP in [docs/03-operations/incident-runbook.md](file:///home/madhuka/VScode%20Projects/Application-structuring-wf-template/docs/03-operations/incident-runbook.md).
+    conditions:
+      - displayName: "Container terminations / restarts > 3 over 10m"
+        conditionThreshold:
+          filter: >-
+            resource.type = "cloud_run_revision" AND
+            (resource.labels.service_name = "template-api" OR resource.labels.service_name = "template-worker") AND
+            metric.type = "run.googleapis.com/container/completed_instance_count" AND
+            metric.labels.exit_reason != "RESOURCE_EXHAUSTED_SCALE_DOWN"
+          comparison: "COMPARISON_GT"
+          thresholdValue: 3
+          duration: "600s"
+          trigger:
+            count: 1
+          aggregations:
+            - alignmentPeriod: "60s"
+              perSeriesAligner: "ALIGN_DELTA"
+              crossSeriesReducer: "REDUCE_SUM"
+              groupByFields:
+                - "resource.labels.service_name"
+
+  # ----------------------------------------------------------------------------
+  # Policy 4: Pub/Sub Dead-Letter Queue (DLQ) Backlog Alert
+  # Triggers when unacknowledged messages > 0 in the tasks-dlq subscription
+  # ----------------------------------------------------------------------------
+  - displayName: "Pub/Sub - Dead-Letter Queue Backlog Detected (DLQ > 0)"
+    enabled: true
+    combiner: "OR"
+    severity: "CRITICAL"
+    userLabels:
+      service: "worker"
+      component: "pubsub"
+      environment: "production"
+      tier: "async-worker"
+      slo_impact: "data-integrity"
+    documentation:
+      mimeType: "text/markdown"
+      content: |
+        ## Dead-Letter Queue Messages Detected
+        One or more messages have exceeded maximum delivery attempts (5 retries) and were routed to the Dead-Letter Queue subscription (`tasks-dlq-sub`).
+        This signifies persistent background worker processing failures, unhandled poison pills, or schema contract violations.
+
+        ### Immediate Remediation Steps:
+        1. **Pull and Inspect Dead-Lettered Message Payloads (Non-Destructive)**:
+           ```bash
+           gcloud pubsub subscriptions pull tasks-dlq-sub --limit=5 --auto-ack=false
+           ```
+        2. **Identify Root Cause**:
+           Check worker error logs corresponding to the message `id` or `traceparent`:
+           ```bash
+           gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="template-worker" AND severity>=ERROR' --limit=50
+           ```
+        3. **Deploy Fix or Schema Update**:
+           If the issue is caused by a poison pill or transient worker bug, deploy the fix.
+        4. **Replay Messages from DLQ**:
+           Follow the DLQ replay procedure in [docs/03-operations/incident-runbook.md](file:///home/madhuka/VScode%20Projects/Application-structuring-wf-template/docs/03-operations/incident-runbook.md).
+    conditions:
+      - displayName: "Unacknowledged messages in DLQ > 0 for 60s"
+        conditionThreshold:
+          filter: >-
+            resource.type = "pubsub_subscription" AND
+            resource.labels.subscription_id = "tasks-dlq-sub" AND
+            metric.type = "pubsub.googleapis.com/subscription/num_undelivered_messages"
+          comparison: "COMPARISON_GT"
+          thresholdValue: 0
+          duration: "60s"
+          trigger:
+            count: 1
+          aggregations:
+            - alignmentPeriod: "60s"
+              perSeriesAligner: "ALIGN_MAX"
+              crossSeriesReducer: "REDUCE_MAX"
+              groupByFields:
+                - "resource.labels.subscription_id"
+
+  # ----------------------------------------------------------------------------
+  # Policy 5: Cloud SQL High CPU or Storage Exhaustion (> 80%)
+  # Triggers when database CPU utilization or disk capacity exceeds 80%
+  # ----------------------------------------------------------------------------
+  - displayName: "Cloud SQL - Resource Exhaustion Alert (CPU / Storage > 80%)"
+    enabled: true
+    combiner: "OR"
+    severity: "CRITICAL"
+    userLabels:
+      service: "database"
+      component: "cloud-sql"
+      environment: "production"
+      tier: "data"
+      slo_impact: "availability"
+    documentation:
+      mimeType: "text/markdown"
+      content: |
+        ## Cloud SQL Critical Resource Exhaustion
+        The PostgreSQL 16 production instance (`template-pg-prod`) is experiencing high resource utilization:
+        - CPU utilization > 80% over 5 minutes, OR
+        - Disk storage utilization > 80% over 5 minutes.
+
+        ### Immediate Mitigation Steps:
+        1. **Check Active Queries and Lock Contention**:
+           Connect to the instance via Cloud SQL Proxy and run:
+           ```sql
+           SELECT pid, age(clock_timestamp(), query_start), usename, query, state
+           FROM pg_stat_activity
+           WHERE state != 'idle' AND query NOT ILIKE '%pg_stat_activity%'
+           ORDER BY age(clock_timestamp(), query_start) DESC LIMIT 10;
+           ```
+        2. **Cancel Runaway Queries**:
+           ```sql
+           SELECT pg_cancel_backend(PID);
+           -- Or terminate if unresponsive:
+           SELECT pg_terminate_backend(PID);
+           ```
+        3. **Storage Expansion**:
+           Cloud SQL auto-resize should trigger, but if manual resize is required:
+           ```bash
+           gcloud sql instances patch template-pg-prod --storage-size=100GB
+           ```
+        4. Refer to Point-In-Time Recovery and database runbook in [docs/03-operations/incident-runbook.md](file:///home/madhuka/VScode%20Projects/Application-structuring-wf-template/docs/03-operations/incident-runbook.md).
+    conditions:
+      - displayName: "Cloud SQL CPU utilization > 80% over 5m"
+        conditionThreshold:
+          filter: >-
+            resource.type = "cloudsql_database" AND
+            resource.labels.database_id =~ ".*template-pg.*" AND
+            metric.type = "cloudsql.googleapis.com/database/cpu/utilization"
+          comparison: "COMPARISON_GT"
+          thresholdValue: 0.80
+          duration: "300s"
+          trigger:
+            count: 1
+          aggregations:
+            - alignmentPeriod: "60s"
+              perSeriesAligner: "ALIGN_MEAN"
+              crossSeriesReducer: "REDUCE_MAX"
+              groupByFields:
+                - "resource.labels.database_id"
+
+      - displayName: "Cloud SQL Disk utilization > 80% over 5m"
+        conditionThreshold:
+          filter: >-
+            resource.type = "cloudsql_database" AND
+            resource.labels.database_id =~ ".*template-pg.*" AND
+            metric.type = "cloudsql.googleapis.com/database/disk/utilization"
+          comparison: "COMPARISON_GT"
+          thresholdValue: 0.80
+          duration: "300s"
+          trigger:
+            count: 1
+          aggregations:
+            - alignmentPeriod: "60s"
+              perSeriesAligner: "ALIGN_MEAN"
+              crossSeriesReducer: "REDUCE_MAX"
+              groupByFields:
+                - "resource.labels.database_id"
