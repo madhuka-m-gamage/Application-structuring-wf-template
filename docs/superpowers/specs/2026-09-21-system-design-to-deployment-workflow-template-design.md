@@ -1,125 +1,113 @@
-# System Design-to-Deployment Workflow Template: 5-Round Architecture Design
+# System Design-to-Deployment Workflow Template: 5-Pass Progressive Expansion Architecture
 
 ## Executive Summary
 This design specification defines an end-to-end, agent-native SDLC workflow template designed for **vibe coding with autonomous AI agents (Antigravity, Claude Code, Cursor, Windsurf) and Model Context Protocol (MCP)** targeting Google Cloud Platform (GCP).
 
-The lifecycle is consolidated into **5 strategic rounds**. Each round represents an isolated, independently testable milestone with clear inputs, deliverables, verification gates, and parallel subagent dispatch points.
+Instead of treating system design and deployment as flat stages, this workflow template introduces a **5-Pass Progressive Plan Expansion Engine**. In the design and planning phases, a system concept is iteratively expanded across **5 distinct zoom levels**, starting from macro intent and progressively expanding level-by-level down to granular contracts, agent task playbooks, declarative Terraform IaC, and progressive cloud deployment.
 
 ---
 
-## The 5-Round Lifecycle Architecture
+## The 5-Pass Progressive Expansion Architecture
 
 ```mermaid
-flowchart LR
-    R1["Round 1:<br/>Foundation & Architecture<br/>(RFC, C4, ADRs)"] --> R2["Round 2:<br/>Contracts & Schemas<br/>(OpenAPI, PubSub, SQL)"]
-    R2 --> R3["Round 3:<br/>Agent Steering & Scaffolding<br/>(AGENTS.md, MCP, Docker)"]
-    R3 --> R4["Round 4:<br/>GCP Terraform IaC<br/>(Cloud Run, SQL, IAM, WIF)"]
-    R4 --> R5["Round 5:<br/>CI/CD & Observability<br/>(Workflows, Alerts, Runbooks)"]
+flowchart TD
+    P1["Pass 1: Macro Domain & System Context Expansion<br/>(Zoom Level 1: Problem Space, Personas, C4 Context)"]
+    --> P2["Pass 2: Service Topology & Container Expansion<br/>(Zoom Level 2: C4 Container, Sync/Async Patterns, ADRs)"]
+    --> P3["Pass 3: Interface, Contract & Schema Expansion<br/>(Zoom Level 3: OpenAPI 3.1, Pub/Sub Events, PostgreSQL DDL)"]
+    --> P4["Pass 4: Agent Steering, Scaffolding & Task Expansion<br/>(Zoom Level 4: AGENTS.md, MCP Hub, Playbooks, Docker, Make)"]
+    --> P5["Pass 5: IaC, Progressive CI/CD & Observability Expansion<br/>(Zoom Level 5: GCP Terraform, WIF, GitHub Actions, Alerts, Runbooks)"]
 ```
 
 ---
 
-## Round 1: Foundation & Architecture Blueprint
+## Detailed Pass-by-Pass Progressive Expansion
 
-### Objective
-Establish the foundational system intent, domain boundaries, C4 model diagrams, and critical architectural decisions before writing contracts or code.
-
-### Deliverables
-1. `docs/00-discovery/problem-statement.md`: Intent, target personas, business constraints, and non-functional requirements.
-2. `docs/00-discovery/success-metrics.md`: Key performance indicators (KPIs), SLO targets, and acceptance criteria.
-3. `docs/01-architecture/system-rfc.md`: Comprehensive system Request for Comments (RFC) detailing topology, communication patterns, and sync vs. async flows.
-4. `docs/01-architecture/c4-architecture.md`: C4 Level 1 (System Context) and Level 2 (Container) Mermaid diagrams.
-5. `docs/adr/0001-technology-stack.md` & `0002-cloud-run-and-pubsub.md`: Architecture Decision Records capturing rationale, trade-offs, and alternatives considered.
-
-### Parallel Subagent Dispatch Strategy
-- **Agent 1 (Discovery Lead):** Generates problem statement, user personas, and success metrics templates.
-- **Agent 2 (Architecture Modeler):** Generates System RFC and C4 Mermaid diagrams for web, api, worker, and database.
-- **Agent 3 (ADR Author):** Generates ADR templates and initial records for GCP Cloud Run, Cloud Pub/Sub, and PostgreSQL.
+### Pass 1: Macro Domain & System Context Expansion (Zoom Level 1)
+- **Focus**: The 10,000-foot view. Clarify *why* the system exists, who interacts with it, boundary constraints, and non-functional targets before any technology or code is decided.
+- **Expansion Mechanism**: Takes a rough user idea or product brief and expands it into formal discovery specs and a C4 Level 1 System Context model.
+- **Key Deliverables**:
+  - `docs/00-discovery/problem-statement-template.md`: Problem background, user personas, functional boundaries, out-of-scope declarations.
+  - `docs/00-discovery/success-metrics-template.md`: Quantifiable KPIs, latency/throughput requirements, and business goals.
+  - `docs/01-architecture/c4-context-model.md`: Mermaid C4 Level 1 diagram defining external users and third-party systems.
+- **Parallel Subagent Opportunities**:
+  - Agent 1: Generates problem statement and user personas framework.
+  - Agent 2: Generates quantifiable metrics, SLA/SLO baselines.
+  - Agent 3: Models C4 Context boundary diagrams and external dependencies.
 
 ---
 
-## Round 2: Contracts, Interfaces & Schema Specifications
-
-### Objective
-Define and validate strict service interface boundaries, message formats, and data storage definitions prior to implementation, preventing agent hallucinations and schema mismatch.
-
-### Deliverables
-1. `contracts/api/openapi.yaml`: OpenAPI 3.1 specification for the Backend API, including request/response schemas, error objects, and mock payloads.
-2. `contracts/events/event-schema.json`: Google Cloud Pub/Sub JSON message contract for asynchronous worker processing.
-3. `contracts/database/schema.sql`: PostgreSQL DDL defining database tables, relationships, indexes, foreign keys, and constraints.
-4. `contracts/database/erd.md`: Mermaid Entity-Relationship Diagram (ERD) documenting data entities and cardinality.
-
-### Parallel Subagent Dispatch Strategy
-- **Agent 1 (API Designer):** Authors `openapi.yaml` with schema models and example mock responses.
-- **Agent 2 (Event Modeler):** Authors Pub/Sub JSON schemas and publisher/subscriber payload definitions.
-- **Agent 3 (Data Modeler):** Authors PostgreSQL DDL, indices, and Mermaid ERD documentation.
+### Pass 2: Service Topology & Communication Architecture Expansion (Zoom Level 2)
+- **Focus**: Zoom in from the system boundary to the container/subsystem layer. Decompose the system into distinct computational tiers and define how data flows between them.
+- **Expansion Mechanism**: Expands the C4 Context into multi-tier containers (Web Frontend, API Backend, Background Worker, PostgreSQL, Cloud Pub/Sub) and codifies architectural decisions in ADRs.
+- **Key Deliverables**:
+  - `docs/01-architecture/system-rfc-template.md`: Full architectural RFC detailing synchronous REST flows, asynchronous event buffering, and security perimeters.
+  - `docs/01-architecture/c4-container-model.md`: C4 Level 2 Mermaid container topology and protocol specifications.
+  - `docs/adr/0001-record-architecture-decisions.md`: ADR process standard.
+  - `docs/adr/0002-cloud-run-serverless-microservices.md`: Formal decision record justifying Cloud Run, Pub/Sub, and Postgres over Kubernetes.
+- **Parallel Subagent Opportunities**:
+  - Agent 1: Authors the comprehensive System RFC template.
+  - Agent 2: Authors the C4 Container architecture diagram and protocol mapping.
+  - Agent 3: Constructs the Architecture Decision Record (ADR) framework.
 
 ---
 
-## Round 3: Agent Steering, MCP Tooling & Development Scaffolding
-
-### Objective
-Equip human developers and autonomous AI agents with unified project rules, Model Context Protocol (MCP) server profiles, slash command playbooks, and local container runtime automation.
-
-### Deliverables
-1. `AGENTS.md` & `.cursorrules`: Project instructions specifying code conventions, directory boundaries, testing mandates, and forbidden patterns.
-2. `.mcp/gcp-mcp.json` & `.mcp/mcp-instructions.md`: MCP server configuration guides for Google Cloud (Cloud Run, Cloud Logging, Secret Manager), PostgreSQL, and GitHub MCPs.
-3. `.agents/playbooks/`: Slash command playbooks (`design-service.md`, `scaffold-endpoint.md`, `verify-branch.md`).
-4. `docker-compose.yml`: Local multi-tier environment (Frontend mock, API backend, Pub/Sub emulator, PostgreSQL).
-5. `Makefile`: Unified commands (`make verify`, `make test`, `make lint`, `make docker-up`, `make clean`).
-
-### Parallel Subagent Dispatch Strategy
-- **Agent 1 (Agent Steering Architect):** Builds `AGENTS.md`, `.cursorrules`, and `.agents/playbooks/`.
-- **Agent 2 (MCP Integration Engineer):** Configures `.mcp/` profiles and instructions for GCP, DB, and GitHub.
-- **Agent 3 (Local Scaffolding Lead):** Creates `docker-compose.yml`, multi-stage Dockerfiles, and `Makefile`.
+### Pass 3: Interface, Contract & Schema Expansion (Zoom Level 3)
+- **Focus**: Zoom inside the containers to define absolute interfaces and data models. Eliminates agent hallucination by providing strict, machine-readable contracts before implementation.
+- **Expansion Mechanism**: Expands container definitions into OpenAPI 3.1 endpoints, CloudEvents-compliant Pub/Sub event schemas, and PostgreSQL DDL with relational ERDs.
+- **Key Deliverables**:
+  - `contracts/api/openapi.yaml`: Complete OpenAPI 3.1 contract (REST endpoints, query params, request/response bodies, RFC 7807 error details).
+  - `contracts/api/mock-server.json`: Mock data definitions for client-server decoupling.
+  - `contracts/events/event-envelope.json` & `task-created.v1.json`: JSON Schemas for asynchronous message publishing and worker ingestion.
+  - `contracts/database/schema.sql`: Production-grade PostgreSQL DDL with UUID primary keys, indexes, foreign keys, and audit triggers.
+  - `contracts/database/erd.md`: Mermaid Entity-Relationship Diagram documenting cardinality and relations.
+- **Parallel Subagent Opportunities**:
+  - Agent 1: Authors OpenAPI 3.1 specification and mock schemas.
+  - Agent 2: Authors CloudEvents JSON schemas for Pub/Sub messaging.
+  - Agent 3: Authors PostgreSQL DDL, indices, constraints, and Mermaid ERD.
 
 ---
 
-## Round 4: Infrastructure as Code (GCP Terraform Modules & Environments)
-
-### Objective
-Construct modular, declarative Terraform definitions to provision the multi-tier system on Google Cloud Platform with zero manual console intervention.
-
-### Deliverables
-1. `infra/modules/vpc/`: VPC network, subnets, Serverless VPC Access Connector.
-2. `infra/modules/cloud_run/`: Cloud Run v2 service definitions for Web Frontend, API Backend, and Pub/Sub Worker with auto-scaling and health checks.
-3. `infra/modules/cloud_sql/`: Cloud SQL PostgreSQL instance, databases, users, and private IP configuration.
-4. `infra/modules/pubsub/`: Pub/Sub topics, dead-letter queues (DLQ), and push/pull subscriptions.
-5. `infra/modules/iam_wif/`: Workload Identity Federation (WIF) pool, provider, and service accounts for keyless GitHub Actions authentication.
-6. `infra/environments/{dev, staging, prod}/`: Environment-specific parameter bindings (`main.tf`, `variables.tf`, `terraform.tfvars.example`).
-
-### Parallel Subagent Dispatch Strategy
-- **Agent 1 (Platform & IAM Engineer):** Implements VPC, IAM, and Workload Identity Federation (WIF) modules.
-- **Agent 2 (Compute Engineer):** Implements Cloud Run and Artifact Registry modules.
-- **Agent 3 (Data & Messaging Engineer):** Implements Cloud SQL and Cloud Pub/Sub modules with DLQ.
+### Pass 4: Agent Steering, Scaffolding & Task Expansion (Zoom Level 4)
+- **Focus**: Zoom into the code and local developer experience. Equip developers and AI agents with clear rules, MCP tool integrations, prompt playbooks, and local container runtimes.
+- **Expansion Mechanism**: Expands contracts into agent instruction files (`AGENTS.md`, `.cursorrules`), MCP connection profiles, command playbooks, and multi-tier local containers (`docker-compose.yml`, `Makefile`).
+- **Key Deliverables**:
+  - `AGENTS.md`, `.cursorrules`, and `GEMINI.md`: Strict agent guidelines (contract-first rules, coding conventions, testing requirements, forbidden patterns).
+  - `.agents/playbooks/`: Executable slash command prompt playbooks (`design-service.md`, `scaffold-endpoint.md`, `verify-branch.md`).
+  - `.mcp/gcp-mcp.json`, `.mcp/postgres-mcp.json`, `.mcp/github-mcp.json`: Model Context Protocol configs for GCP, Postgres, and GitHub.
+  - `docker-compose.yml`: Local multi-service environment (Web, API, Worker, PostgreSQL, Pub/Sub emulator).
+  - `services/{web,api,worker}/Dockerfile`: Multi-stage, non-root distroless/alpine Dockerfiles.
+  - `Makefile`: One-command verification loop (`make verify`, `make test`, `make lint`).
+- **Parallel Subagent Opportunities**:
+  - Agent 1: Authors `AGENTS.md`, `.cursorrules`, and agent playbooks.
+  - Agent 2: Configures MCP server integration files and guides.
+  - Agent 3: Creates Dockerfiles, `docker-compose.yml`, and `Makefile`.
 
 ---
 
-## Round 5: Automated CI/CD, Progressive Rollout & Observability
-
-### Objective
-Automate build, security scan, and deployment pipelines using GitHub Actions with keyless GCP WIF, coupled with production monitoring, alerting, and incident response runbooks.
-
-### Deliverables
-1. `.github/workflows/ci.yaml`: Continuous integration workflow (linting, typechecks, unit tests, Docker build, Trivy vulnerability scan).
-2. `.github/workflows/deploy-staging.yaml` & `deploy-prod.yaml`: Continuous deployment pipelines authenticating via WIF, pushing to Artifact Registry, and triggering zero-downtime Cloud Run revision rollouts.
-3. `monitoring/alert-policies.yaml`: Google Cloud Monitoring metric-based alerting rules (HTTP 5xx rate, latency p99, Cloud Run container restarts, Pub/Sub unacknowledged message age).
-4. `monitoring/logging-config.md`: Structured JSON logging conventions with correlation IDs (`trace`, `spanId`).
-5. `docs/03-operations/incident-runbook.md`: Standard Operating Procedures (SOPs) for incident triage, rollbacks, and database recovery.
-
-### Parallel Subagent Dispatch Strategy
-- **Agent 1 (CI/CD Engineer):** Implements GitHub Actions workflows (`ci.yaml`, `deploy-staging.yaml`, `deploy-prod.yaml`).
-- **Agent 2 (Observability Engineer):** Creates Cloud Monitoring alert policies, logging standards, and SLO definitions.
-- **Agent 3 (SRE / Operations Author):** Writes incident runbooks, disaster recovery playbooks, and production readiness checklist.
+### Pass 5: IaC, Progressive CI/CD & Observability Expansion (Zoom Level 5)
+- **Focus**: The cloud runtime and operational reality. Provision declarative GCP infrastructure, keyless CI/CD, and production monitoring.
+- **Expansion Mechanism**: Expands the application topology into modular Terraform (`infra/modules/`, `infra/environments/`), GitHub Actions pipelines with Workload Identity Federation (WIF), and production observability runbooks.
+- **Key Deliverables**:
+  - `infra/modules/`: Reusable Terraform modules (`vpc`, `iam_wif`, `cloud_run`, `artifact_registry`, `cloud_sql`, `pubsub`).
+  - `infra/environments/{dev,staging,prod}/`: Environment root configurations with cost and scaling guardrails.
+  - `.github/workflows/ci.yaml`: Continuous integration with linting, testing, Docker build, and Trivy security scanning.
+  - `.github/workflows/deploy-staging.yaml` & `deploy-prod.yaml`: Keyless WIF deployment, Artifact Registry push, and Cloud Run revision traffic splitting.
+  - `monitoring/alert-policies.yaml`: Metric-based alert rules for error rates, latency p99, and container restart loops.
+  - `docs/03-operations/incident-runbook.md` & `slo-sli-definitions.md`: Standard Operating Procedures for triage, rollbacks, and recovery.
+  - `README.md`: Master template guide explaining the 5-Pass Progressive Expansion workflow.
+- **Parallel Subagent Opportunities**:
+  - Agent 1: Implements Terraform modules and environment roots.
+  - Agent 2: Implements GitHub Actions CI/CD workflows with WIF.
+  - Agent 3: Implements Cloud Monitoring alert policies, SLOs, and incident runbooks.
 
 ---
 
-## Quality & Verification Gates
+## Progressive Expansion Validation Matrix
 
-| Round | Verification Gate |
-|---|---|
-| **Round 1** | Markdown linting, Mermaid diagram rendering check, ADR completeness audit |
-| **Round 2** | Spectral OpenAPI validation (`spectral lint contracts/api/openapi.yaml`), SQL DDL syntax validation |
-| **Round 3** | `make verify` passes; `docker compose config` validates; MCP json schema validation |
-| **Round 4** | `terraform fmt -check`, `terraform validate`, `tflint` pass across all modules & environments |
-| **Round 5** | GitHub Actions workflow syntax validation via `actionlint`; alert policy schema validation |
+| Expansion Pass | Input | Validation Gate | Output |
+|---|---|---|---|
+| **Pass 1: Macro Domain** | User request / Problem | Markdown linting, Persona completeness audit | Problem Statement, KPIs, C4 Context |
+| **Pass 2: Service Topology** | C4 Context | ADR review, Mermaid syntax validation | C4 Containers, System RFC, ADRs |
+| **Pass 3: Contracts** | Service topology | Spectral OpenAPI lint, JSON Schema check, SQL syntax check | `openapi.yaml`, PubSub schemas, `schema.sql` |
+| **Pass 4: Agent Steering** | Contracts & Runtimes | `docker compose config`, `make verify` passes | `AGENTS.md`, `.mcp/`, Dockerfiles, `Makefile` |
+| **Pass 5: IaC & Deployment** | Scaffolded services | `terraform fmt`, `terraform validate`, `actionlint` | Terraform modules, CI/CD, Monitoring, Runbooks |

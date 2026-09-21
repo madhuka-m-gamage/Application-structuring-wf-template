@@ -1,32 +1,33 @@
-# System Design-to-Deployment Workflow Template Implementation Plan (5 Rounds)
+# System Design-to-Deployment Workflow Template Implementation Plan (5-Pass Progressive Expansion)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Within each round, use superpowers:dispatching-parallel-agents to execute independent tasks in parallel. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Across each expansion pass, use superpowers:dispatching-parallel-agents to execute independent tasks in parallel. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a production-grade, agent-native SDLC workflow template in this repository that guides development teams and autonomous AI agents from system architecture design through contracts, scaffolding, and Terraform IaC to Google Cloud Platform deployment and observability across 5 structured rounds.
+**Goal:** Build a production-grade, agent-native SDLC workflow template in this repository that guides development teams and autonomous AI agents through a 5-pass progressive expansion engine—iteratively expanding a system design level-by-level from macro domain intent to strict contracts, agent steering, Terraform IaC, and progressive GCP deployment.
 
-**Architecture:** A multi-tier microservices architecture (Frontend Web, API Backend, Background Worker, PostgreSQL, Cloud Pub/Sub) running on GCP Cloud Run serverless containers, governed by OpenAPI and Pub/Sub event contracts, managed via modular Terraform, and automated with GitHub Actions utilizing Workload Identity Federation (WIF) and MCP server tooling.
+**Architecture:** A 5-tier progressive expansion engine supporting a multi-tier microservices architecture (Frontend Web, API Backend, Background Worker, PostgreSQL, Cloud Pub/Sub) running on GCP Cloud Run serverless containers, governed by OpenAPI and Pub/Sub event contracts, managed via modular Terraform, and automated with GitHub Actions utilizing Workload Identity Federation (WIF) and MCP server tooling.
 
 **Tech Stack:** Markdown/Mermaid, OpenAPI 3.1, JSON Schema, PostgreSQL DDL, Docker/Docker Compose, Terraform (GCP Provider), GitHub Actions, Workload Identity Federation, GCP Cloud Run v2, Cloud Pub/Sub, Cloud SQL, Cloud Monitoring/Logging, Model Context Protocol (MCP).
 
 **Spec:** [`docs/superpowers/specs/2026-09-21-system-design-to-deployment-workflow-template-design.md`](file:///home/madhuka/VScode%20Projects/Application-structuring-wf-template/docs/superpowers/specs/2026-09-21-system-design-to-deployment-workflow-template-design.md)
 
 ## Global Constraints
+- Progressive Elaboration: Each expansion pass must build strictly upon the verified outputs of the preceding pass.
 - Every template document must include YAML frontmatter and clear placeholder annotations (`{{VARIABLE_NAME}}`) with complete accompanying explanation.
 - No dummy/unusable code: all schema files, Dockerfiles, Terraform configs, and GitHub workflows must be syntactically valid and pass linter/validator checks.
 - Zero raw secrets: all GCP authentication must use Workload Identity Federation (WIF) or Secret Manager; no plaintext service account keys.
 - Docker containers must adhere to non-root least-privilege standards and multi-stage builds.
-- All tasks within a Round are designed for parallel subagent dispatch via `superpowers:dispatching-parallel-agents`.
+- All independent tasks within each pass are designed for parallel subagent dispatch via `superpowers:dispatching-parallel-agents`.
 
 ## Review Focus
-1. Contract-to-Implementation drift: Ensure OpenAPI endpoints and Pub/Sub topic names match exactly across contracts, Terraform configs, and CI/CD pipelines.
-2. Keyless WIF security: Ensure GitHub Actions workflows use OIDC tokens and omit static GCP credentials.
-3. Private networking isolation: Ensure Cloud SQL and Cloud Run talk via Serverless VPC Connector without public IP database exposure.
-4. Agent usability: Ensure `AGENTS.md` and `.cursorrules` have concise, actionable guardrails that prevent AI hallucination.
+1. Level-to-level alignment: Verify that entities defined in Pass 1 discovery trace directly into Pass 2 containers, Pass 3 contracts, Pass 4 services, and Pass 5 cloud resources.
+2. Contract-to-Implementation drift: Ensure OpenAPI endpoints and Pub/Sub topic names match exactly across contracts, Terraform configs, and CI/CD pipelines.
+3. Keyless WIF security: Ensure GitHub Actions workflows use OIDC tokens and omit static GCP credentials.
+4. Private networking isolation: Ensure Cloud SQL and Cloud Run talk via Serverless VPC Connector without public IP database exposure.
 5. Local vs Cloud parity: Ensure `docker-compose.yml` provides a functional local facsimile of the GCP cloud runtime.
 
 ---
 
-## Round 1: Foundation & Architecture Blueprint
+## Pass 1: Macro Domain & System Context Expansion (Zoom Level 1)
 
 ### Task 1.1: System Intent & Requirements Discovery Framework
 **Files:**
@@ -47,30 +48,64 @@
 - [ ] **Step 3: Commit**
   ```bash
   git add docs/00-discovery/
-  git commit -m "docs: add Round 1 discovery and problem statement templates"
+  git commit -m "docs: add Pass 1 discovery and problem statement templates"
   ```
 
-### Task 1.2: System Architecture RFC & C4 Mermaid Modeling
+### Task 1.2: C4 System Context Model Template
 **Files:**
-- Create: `docs/01-architecture/system-rfc-template.md`
-- Create: `docs/01-architecture/c4-architecture-template.md`
+- Create: `docs/01-architecture/c4-context-model.md`
 - Create: `docs/01-architecture/README.md`
 
 **Interfaces:**
 - Consumes: Discovery templates from Task 1.1.
-- Produces: C4 Level 1 Context and C4 Level 2 Container diagrams and communication flow specifications.
+- Produces: C4 Level 1 Context diagrams establishing system boundaries and external actors.
 
-- [ ] **Step 1: Write System RFC template**
-  - Author `docs/01-architecture/system-rfc-template.md` with sections: Overview, System Goals, Component Topology, Data Ingestion/Egress, Synchronous vs. Asynchronous patterns, Security, and Scalability.
-- [ ] **Step 2: Write C4 Architecture template with Mermaid**
-  - Author `docs/01-architecture/c4-architecture-template.md` containing interactive Mermaid C4 diagrams illustrating Frontend Web, Backend API, Pub/Sub, Worker, and Cloud SQL.
-- [ ] **Step 3: Commit**
+- [ ] **Step 1: Write C4 System Context template**
+  - Author `docs/01-architecture/c4-context-model.md` with interactive Mermaid C4 diagrams illustrating external users, external payment/auth systems, and high-level platform boundary.
+  - Author `docs/01-architecture/README.md` outlining the progressive architectural zoom levels.
+- [ ] **Step 2: Commit**
   ```bash
   git add docs/01-architecture/
-  git commit -m "docs: add Round 1 system RFC and C4 architecture templates"
+  git commit -m "docs: add Pass 1 C4 system context model template"
   ```
 
-### Task 1.3: Architecture Decision Records (ADR) Framework
+---
+
+## Pass 2: Service Topology & Communication Architecture Expansion (Zoom Level 2)
+
+### Task 2.1: System Architecture RFC Template
+**Files:**
+- Create: `docs/01-architecture/system-rfc-template.md`
+
+**Interfaces:**
+- Consumes: System Context from Pass 1.
+- Produces: Comprehensive architectural RFC template detailing synchronous REST flows, asynchronous event buffering, and security perimeters.
+
+- [ ] **Step 1: Write System RFC template**
+  - Detail sections: System Overview, High-Level Goals, Service Topology, Data Ingestion/Egress, Synchronous vs. Asynchronous patterns, Security, and Scalability.
+- [ ] **Step 2: Commit**
+  ```bash
+  git add docs/01-architecture/system-rfc-template.md
+  git commit -m "docs: add Pass 2 comprehensive system RFC template"
+  ```
+
+### Task 2.2: C4 Container Architecture Model Template
+**Files:**
+- Create: `docs/01-architecture/c4-container-model.md`
+
+**Interfaces:**
+- Consumes: RFC specifications.
+- Produces: C4 Level 2 Container Mermaid diagram detailing Web Frontend, API Backend, Background Worker, PostgreSQL, and Cloud Pub/Sub.
+
+- [ ] **Step 1: Author C4 Container diagram and communication matrix**
+  - Build interactive Mermaid diagram showing protocols (HTTPS/JSON, Pub/Sub push, PostgreSQL TCP via VPC Connector).
+- [ ] **Step 2: Commit**
+  ```bash
+  git add docs/01-architecture/c4-container-model.md
+  git commit -m "docs: add Pass 2 C4 container architecture model template"
+  ```
+
+### Task 2.3: Architecture Decision Records (ADR) Framework
 **Files:**
 - Create: `docs/adr/README.md`
 - Create: `docs/adr/template.md`
@@ -82,27 +117,27 @@
 - Produces: Versioned ADR log recording technological decisions and trade-offs.
 
 - [ ] **Step 1: Write ADR template and standard records**
-  - Author `docs/adr/template.md` based on the standard Nygard format (Status, Context, Decision, Consequences).
+  - Author `docs/adr/template.md` based on Nygard format (Status, Context, Decision, Consequences).
   - Create `docs/adr/0001-record-architecture-decisions.md` establishing the ADR pattern.
   - Create `docs/adr/0002-cloud-run-serverless-microservices.md` codifying Cloud Run + Pub/Sub selection over GKE.
-- [ ] **Step 2: Verify and commit**
+- [ ] **Step 2: Commit**
   ```bash
   git add docs/adr/
-  git commit -m "docs: add Round 1 ADR framework and initial architectural records"
+  git commit -m "docs: add Pass 2 ADR framework and architectural records"
   ```
 
 ---
 
-## Round 2: Contracts, Interfaces & Schema Specifications
+## Pass 3: Interface, Contract & Schema Expansion (Zoom Level 3)
 
-### Task 2.1: OpenAPI 3.1 REST API Specification & Mock Contracts
+### Task 3.1: OpenAPI 3.1 REST API Specification & Mock Contracts
 **Files:**
 - Create: `contracts/api/openapi.yaml`
 - Create: `contracts/api/mock-server.json`
 - Create: `contracts/api/README.md`
 
 **Interfaces:**
-- Consumes: C4 API component boundaries from Round 1.
+- Consumes: C4 API component boundaries from Pass 2.
 - Produces: Strict schema-anchored endpoints, request bodies, RFC 7807 problem details, and mock responses.
 
 - [ ] **Step 1: Author OpenAPI 3.1 specification**
@@ -113,10 +148,10 @@
 - [ ] **Step 3: Validate and commit**
   ```bash
   git add contracts/api/
-  git commit -m "feat: add Round 2 OpenAPI 3.1 contracts and mock specifications"
+  git commit -m "feat: add Pass 3 OpenAPI 3.1 contracts and mock specifications"
   ```
 
-### Task 2.2: Cloud Pub/Sub Event Schemas & Message Definitions
+### Task 3.2: Cloud Pub/Sub Event Schemas & Message Definitions
 **Files:**
 - Create: `contracts/events/event-envelope.json`
 - Create: `contracts/events/task-created.v1.json`
@@ -132,10 +167,10 @@
 - [ ] **Step 2: Commit**
   ```bash
   git add contracts/events/
-  git commit -m "feat: add Round 2 CloudEvents-compliant Pub/Sub schemas"
+  git commit -m "feat: add Pass 3 CloudEvents-compliant Pub/Sub schemas"
   ```
 
-### Task 2.3: Database DDL Schema & Entity Relationship Model
+### Task 3.3: Database DDL Schema & Entity Relationship Model
 **Files:**
 - Create: `contracts/database/schema.sql`
 - Create: `contracts/database/erd.md`
@@ -152,14 +187,14 @@
 - [ ] **Step 3: Commit**
   ```bash
   git add contracts/database/
-  git commit -m "feat: add Round 2 database DDL schema and visual ERD"
+  git commit -m "feat: add Pass 3 database DDL schema and visual ERD"
   ```
 
 ---
 
-## Round 3: Agent Steering, MCP Tooling & Development Scaffolding
+## Pass 4: Agent Steering, Scaffolding & Task Expansion (Zoom Level 4)
 
-### Task 3.1: Agent Context, Rules & Prompt Playbooks
+### Task 4.1: Agent Context, Rules & Prompt Playbooks
 **Files:**
 - Create: `AGENTS.md`
 - Create: `.cursorrules`
@@ -173,16 +208,16 @@
 - Produces: Explicit instructions, boundaries, and executable prompts for AI agents.
 
 - [ ] **Step 1: Author AGENTS.md, .cursorrules, and GEMINI.md**
-  - Document repository topology, contract-first rules, coding conventions, testing rules, and forbidden antipatterns.
+  - Document repository topology, contract-first rules, coding conventions, testing requirements, and forbidden antipatterns.
 - [ ] **Step 2: Create agent slash command playbooks**
   - Author reusable prompt workflows in `.agents/playbooks/`.
 - [ ] **Step 3: Commit**
   ```bash
   git add AGENTS.md .cursorrules GEMINI.md .agents/
-  git commit -m "feat: add Round 3 agent steering rules and prompt playbooks"
+  git commit -m "feat: add Pass 4 agent steering rules and prompt playbooks"
   ```
 
-### Task 3.2: Model Context Protocol (MCP) Integration Hub
+### Task 4.2: Model Context Protocol (MCP) Integration Hub
 **Files:**
 - Create: `.mcp/gcp-mcp.json`
 - Create: `.mcp/postgres-mcp.json`
@@ -199,10 +234,10 @@
 - [ ] **Step 2: Commit**
   ```bash
   git add .mcp/
-  git commit -m "feat: add Round 3 MCP server configuration hub and guides"
+  git commit -m "feat: add Pass 4 MCP server configuration hub and guides"
   ```
 
-### Task 3.3: Containerized Scaffolding & Local Feedback Loop
+### Task 4.3: Containerized Scaffolding & Local Feedback Loop
 **Files:**
 - Create: `docker-compose.yml`
 - Create: `Makefile`
@@ -220,91 +255,41 @@
   - Orchestrate web, api, worker, PostgreSQL, and Pub/Sub emulator in `docker-compose.yml`.
   - Author `Makefile` with targets: `help`, `verify`, `lint`, `test`, `docker-up`, `docker-down`, `clean`.
 - [ ] **Step 3: Test and commit**
-  - Verify `docker-compose.yml` syntax via `docker compose config` if available.
   ```bash
   git add docker-compose.yml Makefile services/
-  git commit -m "feat: add Round 3 multi-tier container scaffolding and Makefile harness"
+  git commit -m "feat: add Pass 4 multi-tier container scaffolding and Makefile harness"
   ```
 
 ---
 
-## Round 4: Infrastructure as Code (GCP Terraform Modules & Environments)
+## Pass 5: IaC, Progressive CI/CD & Observability Expansion (Zoom Level 5)
 
-### Task 4.1: Networking, IAM & Workload Identity Federation (WIF) Modules
+### Task 5.1: GCP Terraform Modules & Environment Roots
 **Files:**
 - Create: `infra/modules/vpc/{main.tf, variables.tf, outputs.tf}`
 - Create: `infra/modules/iam_wif/{main.tf, variables.tf, outputs.tf}`
-
-**Interfaces:**
-- Consumes: GCP Project ID and region.
-- Produces: Private VPC, Serverless VPC Access connector, and keyless GitHub Actions WIF pool.
-
-- [ ] **Step 1: Author VPC and Serverless Access module**
-- [ ] **Step 2: Author Workload Identity Federation (WIF) module**
-- [ ] **Step 3: Commit**
-  ```bash
-  git add infra/modules/vpc/ infra/modules/iam_wif/
-  git commit -m "feat: add Round 4 Terraform VPC and WIF IAM modules"
-  ```
-
-### Task 4.2: Compute & Artifact Registry Modules
-**Files:**
 - Create: `infra/modules/artifact_registry/{main.tf, variables.tf, outputs.tf}`
 - Create: `infra/modules/cloud_run/{main.tf, variables.tf, outputs.tf}`
-
-**Interfaces:**
-- Consumes: VPC connector and image repositories.
-- Produces: Artifact Registry Docker repository and Cloud Run v2 services for Web, API, and Worker.
-
-- [ ] **Step 1: Author Artifact Registry module**
-- [ ] **Step 2: Author Cloud Run v2 module with auto-scaling and health probes**
-- [ ] **Step 3: Commit**
-  ```bash
-  git add infra/modules/artifact_registry/ infra/modules/cloud_run/
-  git commit -m "feat: add Round 4 Terraform Artifact Registry and Cloud Run modules"
-  ```
-
-### Task 4.3: Data & Messaging Modules (Cloud SQL & Pub/Sub)
-**Files:**
 - Create: `infra/modules/cloud_sql/{main.tf, variables.tf, outputs.tf}`
 - Create: `infra/modules/pubsub/{main.tf, variables.tf, outputs.tf}`
-
-**Interfaces:**
-- Consumes: Private VPC network.
-- Produces: Private Cloud SQL PostgreSQL instance and Pub/Sub topics with Dead Letter Queue (DLQ).
-
-- [ ] **Step 1: Author Cloud SQL PostgreSQL module with private IP**
-- [ ] **Step 2: Author Cloud Pub/Sub module with DLQ subscription**
-- [ ] **Step 3: Commit**
-  ```bash
-  git add infra/modules/cloud_sql/ infra/modules/pubsub/
-  git commit -m "feat: add Round 4 Terraform Cloud SQL and Pub/Sub modules"
-  ```
-
-### Task 4.4: Environment Roots (Dev, Staging, Prod)
-**Files:**
-- Create: `infra/environments/dev/{main.tf, variables.tf, outputs.tf, terraform.tfvars.example}`
-- Create: `infra/environments/staging/{main.tf, variables.tf, outputs.tf, terraform.tfvars.example}`
-- Create: `infra/environments/prod/{main.tf, variables.tf, outputs.tf, terraform.tfvars.example}`
+- Create: `infra/environments/dev/{main.tf, variables.tf, terraform.tfvars.example}`
+- Create: `infra/environments/staging/{main.tf, variables.tf, terraform.tfvars.example}`
+- Create: `infra/environments/prod/{main.tf, variables.tf, terraform.tfvars.example}`
 - Create: `infra/README.md`
 
 **Interfaces:**
-- Consumes: All Terraform modules from Tasks 4.1 - 4.3.
-- Produces: Deployable environment roots with environment-specific scaling and budget guardrails.
+- Consumes: GCP Project ID and service parameters.
+- Produces: Declarative infrastructure modules and environment roots.
 
-- [ ] **Step 1: Author environment roots**
-- [ ] **Step 2: Validate Terraform configuration formatting**
+- [ ] **Step 1: Author Terraform reusable modules (VPC, WIF, Artifact Registry, Cloud Run, Cloud SQL, Pub/Sub)**
+- [ ] **Step 2: Author environment roots (dev, staging, prod) and variables**
 - [ ] **Step 3: Commit**
   ```bash
-  git add infra/environments/ infra/README.md
-  git commit -m "feat: add Round 4 Terraform multi-environment roots (dev, staging, prod)"
+  git add infra/
+  git commit -m "feat: add Pass 5 Terraform modules and multi-environment roots"
   ```
 
----
-
-## Round 5: Automated CI/CD, Progressive Rollout & Observability
-
-### Task 5.1: GitHub Actions CI Pipeline with Security Scanning
+### Task 5.2: GitHub Actions CI Pipeline with Security Scanning
 **Files:**
 - Create: `.github/workflows/ci.yaml`
 
@@ -317,10 +302,10 @@
 - [ ] **Step 2: Commit**
   ```bash
   git add .github/workflows/ci.yaml
-  git commit -m "ci: add Round 5 GitHub Actions CI pipeline with Trivy scanning"
+  git commit -m "ci: add Pass 5 GitHub Actions CI pipeline with Trivy scanning"
   ```
 
-### Task 5.2: GitHub Actions Progressive CD Pipelines (Staging & Prod)
+### Task 5.3: GitHub Actions Progressive CD Pipelines (Staging & Prod)
 **Files:**
 - Create: `.github/workflows/deploy-staging.yaml`
 - Create: `.github/workflows/deploy-prod.yaml`
@@ -329,36 +314,30 @@
 - Consumes: Approved merges to main/release tags.
 - Produces: WIF-authenticated container pushes to Artifact Registry and Cloud Run revision deployments with traffic splitting.
 
-- [ ] **Step 1: Author deploy-staging.yaml**
-  - Automated deployment to `dev`/`staging` upon merge to `main`.
-- [ ] **Step 2: Author deploy-prod.yaml**
-  - Gated production rollout with canary traffic allocation (10% -> 100%) triggered by semantic tags.
-- [ ] **Step 3: Commit**
+- [ ] **Step 1: Author deploy-staging.yaml and deploy-prod.yaml**
+- [ ] **Step 2: Commit**
   ```bash
   git add .github/workflows/deploy-*.yaml
-  git commit -m "ci: add Round 5 progressive CD pipelines with WIF and traffic splitting"
+  git commit -m "ci: add Pass 5 progressive CD pipelines with WIF and traffic splitting"
   ```
 
-### Task 5.3: Production Observability, Alert Policies & Incident Runbooks
+### Task 5.4: Production Observability, Alert Policies & Master Documentation
 **Files:**
 - Create: `monitoring/alert-policies.yaml`
 - Create: `monitoring/logging-config.md`
 - Create: `docs/03-operations/incident-runbook.md`
 - Create: `docs/03-operations/slo-sli-definitions.md`
-- Create: `README.md` (Top-level template documentation)
+- Create: `README.md` (Top-level template guide)
 
 **Interfaces:**
-- Consumes: GCP telemetry standards.
+- Consumes: Telemetry standards and workflow template architecture.
 - Produces: Alerting rules, SLO metrics, operational incident response procedures, and master repository documentation.
 
 - [ ] **Step 1: Author alert policies and logging guide**
-  - Define metric alerts for HTTP 5xx errors, latency spikes, and container restart loops.
 - [ ] **Step 2: Author incident runbook and SLO definitions**
-  - Document rollback procedures, database restore steps, and SLO breach escalation.
-- [ ] **Step 3: Author master README.md**
-  - Provide onboarding guide for developers and AI agents navigating the 5-round template.
+- [ ] **Step 3: Author master README.md with 5-Pass Progressive Expansion Guide**
 - [ ] **Step 4: Commit**
   ```bash
   git add monitoring/ docs/03-operations/ README.md
-  git commit -m "feat: add Round 5 observability, incident runbooks, and master README"
+  git commit -m "feat: add Pass 5 observability, incident runbooks, and master README"
   ```
