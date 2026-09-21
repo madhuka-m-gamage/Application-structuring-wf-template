@@ -1,0 +1,226 @@
+# ==============================================================================
+# Continuous Integration (CI) Workflow
+# System Design-to-Deployment Workflow Template - Pass 5
+# ==============================================================================
+# Triggers: Push to main, Pull Requests targeting main
+# Jobs:
+#   1. lint-and-test: Checks out code, sets up Node.js 20, runs make verify
+#   2. contract-validation: Validates OpenAPI 3.1 YAML syntax & CloudEvents JSON schemas
+#   3. docker-build-and-scan: Builds web, api, worker images & scans CVEs via Trivy
+#   4. terraform-validate: Runs terraform fmt -check and terraform validate across infra/
+# ==============================================================================
+
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Job 1: Lint and Test (make verify)
+  # ----------------------------------------------------------------------------
+  lint-and-test:
+    name: Lint & Test (Node.js 20)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies across all services
+        run: |
+          for dir in services/api services/worker services/web; do
+            echo "▶ Installing dependencies in $dir..."
+            (cd "$dir" && npm install)
+          done
+
+      - name: Run verification harness (make verify)
+        run: make verify
+
+  # ----------------------------------------------------------------------------
+  # Job 2: Contract Validation (OpenAPI 3.1 & CloudEvents)
+  # ----------------------------------------------------------------------------
+  contract-validation:
+    name: Contract Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install --no-cache-dir pyyaml
+
+      - name: Validate OpenAPI 3.1 YAML Syntax
+        run: |
+          python3 -c "
+          import yaml, sys
+
+          spec_path = 'contracts/api/openapi.yaml'
+          print(f'▶ Validating OpenAPI 3.1 specification: {spec_path}')
+          try:
+              with open(spec_path, 'r', encoding='utf-8') as f:
+                  data = yaml.safe_load(f)
+              assert data is not None, 'OpenAPI document is empty'
+              assert 'openapi' in data, 'Missing root openapi version attribute'
+              openapi_ver = str(data['openapi'])
+              assert openapi_ver.startswith('3.1'), f'Expected OpenAPI 3.1.x, received: {openapi_ver}'
+              assert 'info' in data, 'Missing info section'
+              assert 'paths' in data, 'Missing paths section'
+              assert 'components' in data, 'Missing components section'
+              assert 'schemas' in data['components'], 'Missing components/schemas section'
+              paths_count = len(data.get('paths', {}))
+              schemas_count = len(data.get('components', {}).get('schemas', {}))
+              print(f'✔ OpenAPI 3.1 specification valid. Discovered {paths_count} paths and {schemas_count} schemas.')
+          except Exception as err:
+              print(f'❌ OpenAPI specification validation failed: {err}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      - name: Validate CloudEvents JSON Schemas
+        run: |
+          python3 -c "
+          import json, glob, sys
+
+          schema_files = sorted(glob.glob('contracts/events/*.json'))
+          if not schema_files:
+              print('❌ No CloudEvents schema files found in contracts/events/', file=sys.stderr)
+              sys.exit(1)
+
+          print(f'▶ Found {len(schema_files)} CloudEvents JSON schema definitions to validate:')
+          for sf in schema_files:
+              try:
+                  with open(sf, 'r', encoding='utf-8') as f:
+                      schema = json.load(f)
+                  schema_id = schema.get('\$id') or schema.get('title') or sf
+                  print(f'  ✔ Valid JSON Schema: {sf} (ID: {schema_id})')
+              except Exception as err:
+                  print(f'  ❌ Malformed JSON Schema in {sf}: {err}', file=sys.stderr)
+                  sys.exit(1)
+
+          print('✔ All CloudEvents JSON schemas verified successfully.')
+          "
+
+  # ----------------------------------------------------------------------------
+  # Job 3: Docker Build & Trivy Security Vulnerability Scan
+  # ----------------------------------------------------------------------------
+  docker-build-and-scan:
+    name: Docker Build & Trivy Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Web Container Image
+        run: docker build -t web:${{ github.sha }} services/web
+
+      - name: Scan Web Image with Trivy (Fail on CRITICAL)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'web:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+      - name: Build API Container Image
+        run: docker build -t api:${{ github.sha }} services/api
+
+      - name: Scan API Image with Trivy (Fail on CRITICAL)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'api:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+      - name: Build Worker Container Image
+        run: docker build -t worker:${{ github.sha }} services/worker
+
+      - name: Scan Worker Image with Trivy (Fail on CRITICAL)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'worker:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+  # ----------------------------------------------------------------------------
+  # Job 4: Terraform Format and Validate
+  # ----------------------------------------------------------------------------
+  terraform-validate:
+    name: Terraform Validation (infra/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+
+      - name: Check Terraform Formatting
+        run: |
+          if [ -d "infra" ]; then
+            echo "▶ Checking Terraform formatting recursively across infra/..."
+            terraform fmt -check -recursive infra/
+            echo "✔ Terraform formatting clean."
+          else
+            echo "ℹ infra/ directory not present in this checkout. Skipping fmt check."
+          fi
+
+      - name: Validate Terraform Configurations
+        run: |
+          if [ -d "infra" ]; then
+            echo "▶ Validating all Terraform roots and modules in infra/..."
+            MODULE_DIRS=$(find infra -name "*.tf" -exec dirname {} + | sort -u)
+            if [ -z "$MODULE_DIRS" ]; then
+              echo "ℹ No .tf files found in infra/. Skipping validation."
+            else
+              for dir in $MODULE_DIRS; do
+                echo "  → Initializing and validating: $dir"
+                (cd "$dir" && terraform init -backend=false && terraform validate)
+              done
+              echo "✔ All Terraform modules and environments validated successfully."
+            fi
+          else
+            echo "ℹ infra/ directory not present in this checkout. Skipping validation."
+          fi

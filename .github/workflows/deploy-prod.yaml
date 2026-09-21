@@ -1,0 +1,359 @@
+# ==============================================================================
+# Production Progressive CD Workflow with Canary Rollout & Rollback
+# System Design-to-Deployment Workflow Template - Pass 5
+# ==============================================================================
+# Triggers: Release tags (v*.*.*) or manual workflow_dispatch
+# Approval Gate: GitHub Environment 'production' protection rules
+# Authentication: Keyless GCP Workload Identity Federation (WIF)
+# Progressive Rollout:
+#   1. Deploy new revision with 10% traffic split and dedicated canary tag URL
+#   2. Run automated smoke checks against canary revision
+#   3. If healthy, migrate 100% traffic to new revision
+#   4. Rollback Step: Automatically reverts traffic to previous revision on failure
+# ==============================================================================
+
+name: Deploy Production
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag or image tag to deploy (defaults to git ref/sha)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID_PROD || vars.GCP_PROJECT_ID || 'template-prod' }}
+  WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER || secrets.WIF_PROVIDER }}
+  WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT || secrets.WIF_SERVICE_ACCOUNT }}
+  ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO || 'app-containers' }}
+  SERVICE_PREFIX: ${{ vars.SERVICE_PREFIX || 'template' }}
+  CANARY_PERCENT: 10
+
+jobs:
+  deploy-production:
+    name: Production Progressive Canary Deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine Deployment Version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "DEPLOY_TAG=$TAG" >> $GITHUB_ENV
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "▶ Selected production deployment tag: $TAG"
+
+      - name: Authenticate to Google Cloud via WIF (Keyless)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker Authentication for Google Artifact Registry
+        run: |
+          echo "▶ Configuring Docker credential helper for Artifact Registry..."
+          gcloud auth configure-docker "${{ env.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build, Tag & Push Production Container Images
+        run: |
+          REGISTRY="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}"
+          echo "▶ Pushing images for production release: ${{ env.DEPLOY_TAG }}"
+
+          for service in api worker web; do
+            echo "▶ Building $service image..."
+            IMAGE_VERSION="${REGISTRY}/${service}:${{ env.DEPLOY_TAG }}"
+            IMAGE_SHA="${REGISTRY}/${service}:${{ github.sha }}"
+
+            docker build -t "$IMAGE_VERSION" -t "$IMAGE_SHA" "services/${service}"
+
+            echo "▶ Pushing $service to Artifact Registry..."
+            docker push "$IMAGE_VERSION"
+            docker push "$IMAGE_SHA"
+          done
+
+      # ------------------------------------------------------------------------
+      # Capture Previous Active Revisions for Rollback Safeguard
+      # ------------------------------------------------------------------------
+      - name: Capture Previous Active Revisions
+        id: capture-prev
+        run: |
+          for service in api worker web; do
+            SERVICE_NAME="${{ env.SERVICE_PREFIX }}-${service}-prod"
+            PREV_REV=$(gcloud run services describe "$SERVICE_NAME" \
+              --region="${{ env.GCP_REGION }}" \
+              --format='value(status.traffic[0].revisionName)' 2>/dev/null || echo "")
+            echo "PREV_REV_${service^^}=$PREV_REV" >> $GITHUB_ENV
+            echo "Current active revision for $SERVICE_NAME: ${PREV_REV:-None (initial deployment)}"
+          done
+
+      # ------------------------------------------------------------------------
+      # Progressive Canary Rollout: API Service
+      # ------------------------------------------------------------------------
+      - name: Deploy API Service (Canary Revision & 10% Traffic Split)
+        id: canary-api
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-api-prod"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/api:${{ env.DEPLOY_TAG }}"
+
+          echo "▶ Deploying new API revision with canary tag (no main traffic initially)..."
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="$IMAGE" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --ingress=all \
+            --allow-unauthenticated \
+            --no-traffic \
+            --tag=canary
+
+          NEW_REV=$(gcloud run revisions list --service="$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --limit=1 --format="value(metadata.name)")
+          echo "NEW_REV_API=$NEW_REV" >> $GITHUB_ENV
+          echo "▶ New API revision created: $NEW_REV"
+
+          if [ -n "$PREV_REV_API" ]; then
+            echo "▶ Splitting traffic: 10% Canary ($NEW_REV), 90% Stable ($PREV_REV_API)..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-tags="canary=10" \
+              --to-revisions="$PREV_REV_API=90"
+          else
+            echo "▶ Initial deployment detected. Routing 100% traffic to $NEW_REV..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-revisions="$NEW_REV=100"
+          fi
+
+      - name: Automated Smoke Checks against API Canary Revision
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-api-prod"
+          CANARY_URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.traffic[?tag=="canary"].url)')
+
+          if [ -z "$CANARY_URL" ]; then
+            CANARY_URL=$(gcloud run services describe "$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --format='value(status.url)')
+          fi
+
+          echo "▶ Running automated smoke checks on API canary: $CANARY_URL/healthz"
+          for i in {1..10}; do
+            echo "   [Probe $i/10] Verifying API canary endpoint..."
+            STATUS_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" "$CANARY_URL/healthz")
+            if [ "$STATUS_CODE" -eq 200 ]; then
+              echo "   ✔ Probe $i passed (HTTP 200 OK)."
+            else
+              echo "   ❌ Probe $i failed with HTTP $STATUS_CODE!"
+              exit 1
+            fi
+            sleep 4
+          done
+          echo "✔ API Canary revision verified healthy under 10% traffic split."
+
+      - name: Migrate 100% Traffic to API New Revision
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-api-prod"
+          echo "▶ Migrating 100% traffic to verified revision: $NEW_REV_API..."
+          gcloud run services update-traffic "$SERVICE_NAME" \
+            --region="${{ env.GCP_REGION }}" \
+            --to-revisions="$NEW_REV_API=100"
+
+          PROD_API_URL=$(gcloud run services describe "$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --format='value(status.url)')
+          echo "PROD_API_URL=$PROD_API_URL" >> $GITHUB_ENV
+
+      # ------------------------------------------------------------------------
+      # Progressive Canary Rollout: Worker Service
+      # ------------------------------------------------------------------------
+      - name: Deploy Worker Service (Canary Revision & 10% Traffic Split)
+        id: canary-worker
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-worker-prod"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/worker:${{ env.DEPLOY_TAG }}"
+
+          echo "▶ Deploying new Worker revision with canary tag..."
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="$IMAGE" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --ingress=internal-and-cloud-load-balancing \
+            --no-allow-unauthenticated \
+            --no-traffic \
+            --tag=canary
+
+          NEW_REV=$(gcloud run revisions list --service="$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --limit=1 --format="value(metadata.name)")
+          echo "NEW_REV_WORKER=$NEW_REV" >> $GITHUB_ENV
+          echo "▶ New Worker revision created: $NEW_REV"
+
+          if [ -n "$PREV_REV_WORKER" ]; then
+            echo "▶ Splitting traffic: 10% Canary ($NEW_REV), 90% Stable ($PREV_REV_WORKER)..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-tags="canary=10" \
+              --to-revisions="$PREV_REV_WORKER=90"
+          else
+            echo "▶ Initial deployment detected. Routing 100% traffic to $NEW_REV..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-revisions="$NEW_REV=100"
+          fi
+
+      - name: Automated Smoke Checks against Worker Canary Revision
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-worker-prod"
+          CANARY_URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.traffic[?tag=="canary"].url)')
+
+          if [ -z "$CANARY_URL" ]; then
+            CANARY_URL=$(gcloud run services describe "$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --format='value(status.url)')
+          fi
+
+          echo "▶ Running authenticated smoke checks on Worker canary: $CANARY_URL/healthz"
+          ID_TOKEN=$(gcloud auth print-identity-token)
+          for i in {1..10}; do
+            echo "   [Probe $i/10] Verifying Worker canary endpoint..."
+            STATUS_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" -H "Authorization: Bearer $ID_TOKEN" "$CANARY_URL/healthz")
+            if [ "$STATUS_CODE" -eq 200 ]; then
+              echo "   ✔ Probe $i passed (HTTP 200 OK)."
+            else
+              echo "   ❌ Probe $i failed with HTTP $STATUS_CODE!"
+              exit 1
+            fi
+            sleep 4
+          done
+          echo "✔ Worker Canary revision verified healthy."
+
+      - name: Migrate 100% Traffic to Worker New Revision
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-worker-prod"
+          echo "▶ Migrating 100% traffic to verified revision: $NEW_REV_WORKER..."
+          gcloud run services update-traffic "$SERVICE_NAME" \
+            --region="${{ env.GCP_REGION }}" \
+            --to-revisions="$NEW_REV_WORKER=100"
+
+      # ------------------------------------------------------------------------
+      # Progressive Canary Rollout: Web Service
+      # ------------------------------------------------------------------------
+      - name: Deploy Web Service (Canary Revision & 10% Traffic Split)
+        id: canary-web
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-web-prod"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/web:${{ env.DEPLOY_TAG }}"
+
+          echo "▶ Deploying new Web revision with canary tag..."
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="$IMAGE" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --ingress=all \
+            --allow-unauthenticated \
+            --set-env-vars="API_URL=${{ env.PROD_API_URL }}" \
+            --no-traffic \
+            --tag=canary
+
+          NEW_REV=$(gcloud run revisions list --service="$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --limit=1 --format="value(metadata.name)")
+          echo "NEW_REV_WEB=$NEW_REV" >> $GITHUB_ENV
+          echo "▶ New Web revision created: $NEW_REV"
+
+          if [ -n "$PREV_REV_WEB" ]; then
+            echo "▶ Splitting traffic: 10% Canary ($NEW_REV), 90% Stable ($PREV_REV_WEB)..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-tags="canary=10" \
+              --to-revisions="$PREV_REV_WEB=90"
+          else
+            echo "▶ Initial deployment detected. Routing 100% traffic to $NEW_REV..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-revisions="$NEW_REV=100"
+          fi
+
+      - name: Automated Smoke Checks against Web Canary Revision
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-web-prod"
+          CANARY_URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.traffic[?tag=="canary"].url)')
+
+          if [ -z "$CANARY_URL" ]; then
+            CANARY_URL=$(gcloud run services describe "$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --format='value(status.url)')
+          fi
+
+          echo "▶ Running automated smoke checks on Web canary: $CANARY_URL/healthz"
+          for i in {1..10}; do
+            echo "   [Probe $i/10] Verifying Web canary endpoint..."
+            STATUS_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" "$CANARY_URL/healthz")
+            if [ "$STATUS_CODE" -eq 200 ]; then
+              echo "   ✔ Probe $i passed (HTTP 200 OK)."
+            else
+              echo "   ❌ Probe $i failed with HTTP $STATUS_CODE!"
+              exit 1
+            fi
+            sleep 4
+          done
+          echo "✔ Web Canary revision verified healthy."
+
+      - name: Migrate 100% Traffic to Web New Revision
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-web-prod"
+          echo "▶ Migrating 100% traffic to verified revision: $NEW_REV_WEB..."
+          gcloud run services update-traffic "$SERVICE_NAME" \
+            --region="${{ env.GCP_REGION }}" \
+            --to-revisions="$NEW_REV_WEB=100"
+
+      - name: Production Deployment Summary
+        run: |
+          echo "✔ [PRODUCTION PROGRESSIVE ROLLOUT COMPLETED]"
+          echo "All microservices (API, Worker, Web) successfully migrated to 100% production traffic."
+
+      # ------------------------------------------------------------------------
+      # Automated Rollback on Failure
+      # ------------------------------------------------------------------------
+      - name: Automated Rollback on Canary Failure
+        if: failure()
+        run: |
+          echo "🚨 [ROLLBACK TRIGGERED] Deployment or automated canary smoke checks failed!"
+          echo "Reverting Cloud Run traffic to previously active revisions..."
+
+          for service in api worker web; do
+            SERVICE_NAME="${{ env.SERVICE_PREFIX }}-${service}-prod"
+            PREV_VAR="PREV_REV_${service^^}"
+            PREV_REV="${!PREV_VAR}"
+
+            if [ -n "$PREV_REV" ]; then
+              echo "▶ Reverting $SERVICE_NAME to previous revision: $PREV_REV (100% traffic)..."
+              gcloud run services update-traffic "$SERVICE_NAME" \
+                --region="${{ env.GCP_REGION }}" \
+                --to-revisions="$PREV_REV=100" || echo "⚠ Warning: Unable to rollback $SERVICE_NAME to $PREV_REV"
+            else
+              echo "ℹ No prior revision recorded for $SERVICE_NAME. Rollback not required or initial deployment."
+            fi
+          done
+
+          echo "✔ Automated rollback procedure executed."

@@ -1,0 +1,184 @@
+# ==============================================================================
+# Staging Continuous Deployment (CD) Workflow
+# System Design-to-Deployment Workflow Template - Pass 5
+# ==============================================================================
+# Triggers: Push/Merge to main branch, or manual workflow_dispatch
+# Authentication: Keyless GCP Workload Identity Federation (WIF)
+# Artifacts: Pushed to Google Artifact Registry (tagged with commit SHA and latest)
+# Deployment: Cloud Run Staging Revisions (web, api, worker) with automated health check verification
+# ==============================================================================
+
+name: Deploy Staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID_STAGING || vars.GCP_PROJECT_ID || 'template-staging' }}
+  WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER || secrets.WIF_PROVIDER }}
+  WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT || secrets.WIF_SERVICE_ACCOUNT }}
+  ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO || 'app-containers' }}
+  SERVICE_PREFIX: ${{ vars.SERVICE_PREFIX || 'template' }}
+
+jobs:
+  deploy-staging:
+    name: Deploy to Cloud Run (Staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: staging
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud via WIF (Keyless)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker Authentication for Google Artifact Registry
+        run: |
+          echo "▶ Configuring Docker credential helper for Artifact Registry..."
+          gcloud auth configure-docker "${{ env.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build, Tag & Push Container Images to Artifact Registry
+        run: |
+          REGISTRY="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}"
+          echo "▶ Target Artifact Registry: $REGISTRY"
+
+          for service in api worker web; do
+            echo "▶ Building container for $service..."
+            IMAGE_SHA="${REGISTRY}/${service}:${{ github.sha }}"
+            IMAGE_LATEST="${REGISTRY}/${service}:latest"
+
+            docker build -t "$IMAGE_SHA" -t "$IMAGE_LATEST" "services/${service}"
+
+            echo "▶ Pushing $service images to Artifact Registry..."
+            docker push "$IMAGE_SHA"
+            docker push "$IMAGE_LATEST"
+          done
+
+      - name: Deploy API Service to Cloud Run (Staging)
+        id: deploy-api
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-api-staging"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/api:${{ github.sha }}"
+
+          echo "▶ Deploying API service: $SERVICE_NAME"
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="$IMAGE" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --ingress=all \
+            --allow-unauthenticated \
+            --tag="staging-${{ github.sha }}"
+
+          API_URL=$(gcloud run services describe "$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --format='value(status.url)')
+          echo "API_URL=$API_URL" >> $GITHUB_ENV
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+
+      - name: Deploy Worker Service to Cloud Run (Staging)
+        id: deploy-worker
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-worker-staging"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/worker:${{ github.sha }}"
+
+          echo "▶ Deploying Worker service: $SERVICE_NAME"
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="$IMAGE" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --ingress=internal-and-cloud-load-balancing \
+            --no-allow-unauthenticated \
+            --tag="staging-${{ github.sha }}"
+
+          WORKER_URL=$(gcloud run services describe "$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --format='value(status.url)')
+          echo "WORKER_URL=$WORKER_URL" >> $GITHUB_ENV
+          echo "worker_url=$WORKER_URL" >> $GITHUB_OUTPUT
+
+      - name: Deploy Web Service to Cloud Run (Staging)
+        id: deploy-web
+        run: |
+          SERVICE_NAME="${{ env.SERVICE_PREFIX }}-web-staging"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/web:${{ github.sha }}"
+
+          echo "▶ Deploying Web service: $SERVICE_NAME"
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="$IMAGE" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --ingress=all \
+            --allow-unauthenticated \
+            --set-env-vars="API_URL=${{ env.API_URL }}" \
+            --tag="staging-${{ github.sha }}"
+
+          WEB_URL=$(gcloud run services describe "$SERVICE_NAME" --region="${{ env.GCP_REGION }}" --format='value(status.url)')
+          echo "WEB_URL=$WEB_URL" >> $GITHUB_ENV
+          echo "web_url=$WEB_URL" >> $GITHUB_OUTPUT
+
+      - name: Automated Staging Health Check Verification
+        run: |
+          echo "▶ Performing automated post-deployment health check verification on Staging..."
+
+          echo "1. Probing API Service (${{ env.API_URL }}/healthz)..."
+          for i in {1..12}; do
+            echo "   [Attempt $i/12] Checking API health..."
+            if curl --fail --silent --show-error "${{ env.API_URL }}/healthz"; then
+              echo "   ✔ API service responded healthy."
+              break
+            fi
+            if [ "$i" -eq 12 ]; then
+              echo "   ❌ API service health verification timed out."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "2. Probing Worker Service (${{ env.WORKER_URL }}/healthz)..."
+          ID_TOKEN=$(gcloud auth print-identity-token)
+          for i in {1..12}; do
+            echo "   [Attempt $i/12] Checking Worker health with IAM identity token..."
+            if curl --fail --silent --show-error -H "Authorization: Bearer $ID_TOKEN" "${{ env.WORKER_URL }}/healthz"; then
+              echo "   ✔ Worker service responded healthy."
+              break
+            fi
+            if [ "$i" -eq 12 ]; then
+              echo "   ❌ Worker service health verification timed out."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "3. Probing Web Service (${{ env.WEB_URL }}/healthz)..."
+          for i in {1..12}; do
+            echo "   [Attempt $i/12] Checking Web health..."
+            if curl --fail --silent --show-error "${{ env.WEB_URL }}/healthz"; then
+              echo "   ✔ Web service responded healthy."
+              break
+            fi
+            if [ "$i" -eq 12 ]; then
+              echo "   ❌ Web service health verification timed out."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "✔ [STAGING DEPLOYMENT VERIFIED] All microservices deployed and verified healthy!"
