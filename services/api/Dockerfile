@@ -1,53 +1,39 @@
 # ==============================================================================
 # Multi-Stage Secure Dockerfile for Backend API Service
-# Base: Node.js 20 Alpine
+# Base: Node.js 22 Alpine
 # Security: Runs as unprivileged 'appuser' (UID 10001)
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# Stage 1: Build & Dependency Isolation
-# ------------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package manifests
 COPY package*.json ./
+RUN if [ -f package-lock.json ]; then \
+      npm ci --omit=dev --no-audit --no-fund; \
+    else \
+      npm install --omit=dev --no-audit --no-fund; \
+    fi
 
-# Install production dependencies cleanly
-RUN npm ci --omit=dev || npm install --omit=dev
-
-# Copy source files
 COPY . .
 
-# ------------------------------------------------------------------------------
-# Stage 2: Hardened Runtime Container
-# ------------------------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
-# Environment defaults
 ENV NODE_ENV=production \
     PORT=8080 \
     HOST=0.0.0.0
 
-# Create dedicated non-root application user and group
 RUN addgroup -g 10001 -S appgroup && \
     adduser -u 10001 -S appuser -G appgroup
 
-# Copy dependencies and application code with correct ownership
 COPY --from=builder --chown=appuser:appgroup /app /app
 
-# Switch to non-root execution context
 USER appuser
-
-# Expose HTTP API port
 EXPOSE 8080
 
-# Native healthcheck probe invoking /healthz
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/healthz || exit 1
 
-# Start service
 CMD ["node", "src/index.js"]
