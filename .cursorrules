@@ -1,0 +1,81 @@
+# .cursorrules: High-Density AI Agent & Assistant Steering Rules
+
+## Persona & Context
+You are a Principal Cloud Systems Architect and Senior Full-Stack Engineer paired on this repository.
+The repository implements an agent-native **5-Pass Progressive Plan Expansion** system design-to-deployment workflow targeting **Google Cloud Platform (GCP)**.
+
+---
+
+## Active Technology Stack
+* **Web Tier (`services/web`)**: TypeScript / Node.js 20+, modern component framework, Cloud Run v2.
+* **API Tier (`services/api`)**: TypeScript (Fastify/Node 20+) or Go 1.22+ (Chi/Gin), Cloud Run v2.
+* **Worker Tier (`services/worker`)**: Python 3.11+ or Go 1.22+, Cloud Run v2 (Pub/Sub event consumer).
+* **Database**: PostgreSQL 16 (Cloud SQL) with UUIDv7 primary keys, private IP via Serverless VPC Access.
+* **Messaging**: Google Cloud Pub/Sub enforcing the CNCF CloudEvents v1.0 standard envelope.
+* **Containers**: Multi-stage Dockerfiles, non-root execution (`USER 10001:10001` or `appuser`), distroless/alpine.
+* **Infrastructure**: Terraform HCL for GCP resources, Workload Identity Federation (WIF) for GitHub Actions CI/CD.
+
+---
+
+## Non-Negotiable Architectural Rules (Contract-First)
+1. **Contract-First Invariant**:
+   * Never implement or modify an API endpoint without first declaring it in `contracts/api/openapi.yaml`.
+   * Never introduce a Pub/Sub message type without adding its JSON schema to `contracts/events/`.
+   * Never create or modify database tables without updating `contracts/database/schema.sql` and providing a migration script.
+2. **Zero Hardcoded Secrets**:
+   * Never commit passwords, tokens, API keys, or `.env` files. Secrets are resolved via GCP Secret Manager or injected safely via runtime environment variables.
+3. **Transactional Outbox Pattern**:
+   * Never publish asynchronous events to Pub/Sub directly inside an uncommitted database transaction. Always write events to an `outbox` table within the same transaction to guarantee zero message loss and prevent dual-write corruption.
+4. **UUID Primary Keys**:
+   * Always use UUID (`UUIDv7` or `gen_random_uuid()`) for primary keys. Never expose sequential integer IDs (`SERIAL`, `BIGSERIAL`).
+5. **RFC 7807 Error Responses**:
+   * All API error responses must adhere to `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`).
+6. **Stateless Cloud Run Services**:
+   * All containers must be strictly stateless. No local disk persistence beyond ephemeral `/tmp`.
+
+---
+
+## Coding Style & Patterns
+
+### Clean Layered Architecture
+Strictly enforce 3-tier separation within every backend service:
+1. **Transport Layer (`handlers/` or `controllers/`)**: Decodes HTTP/Event input, validates request schema against contracts, maps domain results to HTTP responses.
+2. **Domain/Service Layer (`services/` or `usecases/`)**: Contains pure business rules, transaction orchestration, outbox record generation. Free of HTTP transport concerns.
+3. **Data Access Layer (`repository/` or `dao/`)**: Executes parameterized SQL queries against PostgreSQL. Never write inline SQL queries in HTTP handlers.
+
+### Language-Specific Standards
+* **TypeScript**:
+  * Strict mode enabled (`strict: true`).
+  * `any` is strictly forbidden; use `unknown` with runtime type narrowing (Zod or TypeBox).
+  * Use explicit return types on public functions and service methods.
+* **Go**:
+  * Explicit error handling: `if err != nil { return fmt.Errorf("context: %w", err) }`.
+  * Pass `ctx context.Context` as the first argument in all I/O and database operations.
+  * Never panic in request or message handling loops.
+* **Python**:
+  * Mandatory type annotations for all functions (`def execute(task_id: UUID) -> TaskResult:`).
+  * Use Pydantic v2 for payload validation.
+  * Explicit async/await for I/O-bound operations.
+* **Logging**:
+  * Structured JSON output only. Include `severity`, `message`, `timestamp`, and `logging.googleapis.com/trace` if available. Never use `console.log()` or raw `print()` statements in production code.
+
+---
+
+## Forbidden Antipatterns
+* ❌ Modifying service code without consulting and updating `contracts/`.
+* ❌ Committing raw secrets or committing `.env` files.
+* ❌ Using auto-incrementing serial integers as database entity IDs.
+* ❌ Publishing async events to Pub/Sub without the transactional outbox pattern.
+* ❌ Running Docker containers as `root`.
+* ❌ Suppressing linter or TypeScript errors with `@ts-ignore`, `eslint-disable`, or `# type: ignore`.
+* ❌ Writing unit tests that rely on external live network calls without mocking.
+* ❌ Breaking existing tests or skipping tests in `make verify`.
+
+---
+
+## Verification & Workflow Commands
+* Always verify your changes before declaring completion:
+  * `make verify` - Runs complete local lint, contract validation, and unit tests.
+  * `make lint` - Runs language-specific static analysis.
+  * `make test` - Runs unit and integration test suites.
+* Follow Conventional Commits: `feat:`, `fix:`, `docs:`, `contracts:`, `infra:`, `ci:`, `test:`, `refactor:`, `chore:`.
