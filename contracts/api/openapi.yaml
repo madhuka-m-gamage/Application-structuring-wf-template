@@ -1,0 +1,967 @@
+openapi: 3.1.0
+info:
+  title: "{{SYSTEM_NAME}} API"
+  version: "1.0.0"
+  description: |
+    # {{SYSTEM_NAME}} Core Backend API Contract
+
+    Production-grade OpenAPI 3.1.0 specification defining the contract-first interface for {{SYSTEM_NAME}}.
+    This contract specifies RESTful primitives for task lifecycle management, synchronous-to-asynchronous event bridging, and system health observability.
+
+    ## Standards & Architecture Conventions
+    - **Architecture Style**: RESTful JSON API with asynchronous background event ingress.
+    - **Errors**: Standard RFC 7807 `application/problem+json` error responses.
+    - **Authentication**: JWT OIDC Bearer tokens via `Authorization: Bearer <token>`.
+    - **Idempotency**: Supported via `Idempotency-Key` headers on mutating requests.
+  contact:
+    name: "{{SYSTEM_NAME}} Platform Engineering Team"
+    email: "platform-api@{{SYSTEM_DOMAIN:-example.com}}"
+    url: "https://{{SYSTEM_DOMAIN:-example.com}}/support"
+  license:
+    name: Apache 2.0
+    url: "https://www.apache.org/licenses/LICENSE-2.0.html"
+
+servers:
+  - url: "http://localhost:8080"
+    description: Local Development Server
+  - url: "https://staging-api.{{SYSTEM_DOMAIN:-example.com}}"
+    description: Staging Environment (Pre-production / QA)
+  - url: "https://api.{{SYSTEM_DOMAIN:-example.com}}"
+    description: Production Environment
+
+tags:
+  - name: Health
+    description: Liveness, readiness, and dependency observability probes
+  - name: Tasks
+    description: Task orchestration, lifecycle operations, and state machine transitions
+  - name: Events
+    description: Synchronous-to-asynchronous event ingestion and broker bridging
+
+security:
+  - BearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags:
+        - Health
+      summary: Health and liveness probe
+      description: |
+        Returns service liveness, uptime, semantic version, and health state of connected backing dependencies (database, message bus, cache).
+        Used by Kubernetes liveness/readiness probes and load balancers.
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service is healthy and all backing dependencies are operational
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthCheckResponse"
+              examples:
+                healthy:
+                  summary: Fully Healthy Response
+                  value:
+                    status: "UP"
+                    version: "1.0.0"
+                    uptimeSeconds: 142850
+                    timestamp: "2026-09-21T12:00:00Z"
+                    checks:
+                      database:
+                        status: "UP"
+                        latencyMs: 2
+                        message: "PostgreSQL read-write replica connected"
+                      redis:
+                        status: "UP"
+                        latencyMs: 1
+                        message: "Redis cluster ping OK"
+        "503":
+          description: Service degraded or critical dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+              examples:
+                dependencyUnavailable:
+                  summary: Database Connection Failure
+                  value:
+                    type: "https://errors.{{SYSTEM_DOMAIN:-example.com}}/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "Primary relational database connection timeout"
+                    instance: "/healthz"
+                    code: "ERR_DEPENDENCY_FAILED"
+
+  /api/v1/tasks:
+    get:
+      tags:
+        - Tasks
+      summary: List tasks
+      description: Retrieve a paginated collection of tasks, optionally filtered by execution status or priority.
+      operationId: listTasks
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of items to return (1-100)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Number of items to skip before returning results
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: status
+          in: query
+          description: Filter tasks by lifecycle status
+          required: false
+          schema:
+            $ref: "#/components/schemas/TaskStatusEnum"
+        - name: priority
+          in: query
+          description: Filter tasks by execution priority tier
+          required: false
+          schema:
+            $ref: "#/components/schemas/TaskPriorityEnum"
+      responses:
+        "200":
+          description: Paginated task list retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+              examples:
+                taskListExample:
+                  summary: Paginated List of Tasks
+                  value:
+                    items:
+                      - id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                        title: "Generate Q3 Financial Summary Report"
+                        description: "Aggregate cross-departmental ledger transactions into monthly PDF digest"
+                        status: "COMPLETED"
+                        priority: "HIGH"
+                        payload:
+                          quarter: "Q3"
+                          year: 2026
+                          format: "PDF"
+                        result:
+                          reportUrl: "https://storage.{{SYSTEM_DOMAIN:-example.com}}/reports/2026-q3.pdf"
+                          bytesGenerated: 2450124
+                        error: null
+                        retryCount: 0
+                        maxRetries: 3
+                        createdAt: "2026-09-21T08:30:00Z"
+                        updatedAt: "2026-09-21T08:32:15Z"
+                        completedAt: "2026-09-21T08:32:15Z"
+                      - id: "e1a94294-81ff-4840-a3bc-22345d3e387c"
+                        title: "Sync Inventory Catalog with External Warehouse"
+                        description: "Poll external SOAP endpoint and update SKU quantities"
+                        status: "PROCESSING"
+                        priority: "MEDIUM"
+                        payload:
+                          warehouseId: "WH-NORTH-04"
+                          batchSize: 500
+                        result: null
+                        error: null
+                        retryCount: 1
+                        maxRetries: 3
+                        createdAt: "2026-09-21T09:15:00Z"
+                        updatedAt: "2026-09-21T09:16:00Z"
+                        completedAt: null
+                    totalCount: 42
+                    limit: 20
+                    offset: 0
+                    hasMore: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      tags:
+        - Tasks
+      summary: Create task
+      description: |
+        Validate and submit a new task into the processing queue.
+        Supports optional `Idempotency-Key` header to prevent duplicate creations on transient network retries.
+      operationId: createTask
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Unique client-generated UUID/token to guarantee idempotent creation
+          schema:
+            type: string
+            maxLength: 128
+      requestBody:
+        required: true
+        description: Task creation payload
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+            examples:
+              createTaskSample:
+                summary: New Task Creation Request
+                value:
+                  title: "Import Customer Data Batch"
+                  description: "Ingest CSV records from customer s3 drop bucket"
+                  priority: "HIGH"
+                  payload:
+                    bucket: "incoming-data-ingest"
+                    fileKey: "batches/2026-09-21-customers.csv"
+                    checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  metadata:
+                    department: "Analytics"
+                    initiatedBy: "usr_8823f9b2"
+                  maxRetries: 3
+      responses:
+        "201":
+          description: Task successfully created and queued
+          headers:
+            Location:
+              description: URI of the newly created task resource
+              schema:
+                type: string
+                format: uri
+                example: "/api/v1/tasks/7c9e6679-7425-40de-944b-e07fc1f90ae7"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+              examples:
+                taskCreatedResponse:
+                  summary: Created Task Representation
+                  value:
+                    id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                    title: "Import Customer Data Batch"
+                    description: "Ingest CSV records from customer s3 drop bucket"
+                    status: "PENDING"
+                    priority: "HIGH"
+                    payload:
+                      bucket: "incoming-data-ingest"
+                      fileKey: "batches/2026-09-21-customers.csv"
+                      checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    result: null
+                    error: null
+                    retryCount: 0
+                    maxRetries: 3
+                    createdAt: "2026-09-21T10:00:00Z"
+                    updatedAt: "2026-09-21T10:00:00Z"
+                    completedAt: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Unique UUID identifier of the task
+        schema:
+          type: string
+          format: uuid
+        example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+
+    get:
+      tags:
+        - Tasks
+      summary: Retrieve task by ID
+      description: Fetch the current state, progress, and execution results for an existing task.
+      operationId: getTaskById
+      responses:
+        "200":
+          description: Task retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+              examples:
+                taskDetail:
+                  summary: Active Task Details
+                  value:
+                    id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                    title: "Import Customer Data Batch"
+                    description: "Ingest CSV records from customer s3 drop bucket"
+                    status: "PROCESSING"
+                    priority: "HIGH"
+                    payload:
+                      bucket: "incoming-data-ingest"
+                      fileKey: "batches/2026-09-21-customers.csv"
+                    result: null
+                    error: null
+                    retryCount: 0
+                    maxRetries: 3
+                    createdAt: "2026-09-21T10:00:00Z"
+                    updatedAt: "2026-09-21T10:01:30Z"
+                    completedAt: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    patch:
+      tags:
+        - Tasks
+      summary: Update task status or mutable fields
+      description: Update task status, priority, or metadata. Can be used by orchestrators or human agents to intervene, update progress, or modify priority.
+      operationId: updateTask
+      requestBody:
+        required: true
+        description: Task fields to update
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+            examples:
+              updateStatus:
+                summary: Update Task Status and Priority
+                value:
+                  status: "PROCESSING"
+                  priority: "CRITICAL"
+                  description: "Escalated priority due to end-of-quarter SLA requirement"
+      responses:
+        "200":
+          description: Task updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+              examples:
+                updatedTaskResponse:
+                  summary: Updated Task Result
+                  value:
+                    id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                    title: "Import Customer Data Batch"
+                    description: "Escalated priority due to end-of-quarter SLA requirement"
+                    status: "PROCESSING"
+                    priority: "CRITICAL"
+                    payload:
+                      bucket: "incoming-data-ingest"
+                      fileKey: "batches/2026-09-21-customers.csv"
+                    result: null
+                    error: null
+                    retryCount: 0
+                    maxRetries: 3
+                    createdAt: "2026-09-21T10:00:00Z"
+                    updatedAt: "2026-09-21T10:05:00Z"
+                    completedAt: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      tags:
+        - Tasks
+      summary: Cancel or soft-delete task
+      description: Marks an active or pending task as cancelled, or soft-deletes a completed task.
+      operationId: deleteTask
+      responses:
+        "204":
+          description: Task successfully cancelled or soft-deleted (no response body)
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/events/publish:
+    post:
+      tags:
+        - Events
+      summary: Synchronous-to-asynchronous event bridging
+      description: |
+        Ingests domain events synchronously, validates envelope structure against the schema,
+        and atomically appends the event to the backing message broker (Kafka, AWS EventBridge, or GCP PubSub)
+        for decoupled downstream processing.
+      operationId: publishEvent
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Client idempotency key to prevent dual-publishing
+          schema:
+            type: string
+            maxLength: 128
+      requestBody:
+        required: true
+        description: Standardized domain event payload envelope
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishEventRequest"
+            examples:
+              eventSample:
+                summary: Domain Event Publish Payload
+                value:
+                  eventId: "a2d1f93e-5b16-43b9-8e43-85f2b8493122"
+                  eventType: "user.account.upgraded"
+                  source: "billing-service"
+                  idempotencyKey: "idemp_20260921_usr9921_tier_enterprise"
+                  timestamp: "2026-09-21T10:30:00Z"
+                  payload:
+                    userId: "usr_9921004"
+                    previousTier: "PRO"
+                    newTier: "ENTERPRISE"
+                    seatCount: 50
+                    effectiveDate: "2026-10-01"
+      responses:
+        "202":
+          description: Event successfully validated, accepted, and queued for broker dispatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishEventResponse"
+              examples:
+                acceptedResponse:
+                  summary: Asynchronous Ingestion Acknowledgment
+                  value:
+                    eventId: "a2d1f93e-5b16-43b9-8e43-85f2b8493122"
+                    status: "QUEUED"
+                    partition: 3
+                    timestamp: "2026-09-21T10:30:01Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OIDC JSON Web Token (JWT) issued by corporate Identity Provider (Auth0, Keycloak, Okta, Firebase Auth).
+        Pass in header: `Authorization: Bearer <jwt-token>`.
+
+  schemas:
+    TaskStatusEnum:
+      type: string
+      description: Lifecycle states of a task state machine
+      enum:
+        - PENDING
+        - PROCESSING
+        - COMPLETED
+        - FAILED
+      example: "PENDING"
+
+    TaskPriorityEnum:
+      type: string
+      description: Execution priority scheduling tiers
+      enum:
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+      example: "MEDIUM"
+
+    Task:
+      type: object
+      description: Canonical task representation entity
+      required:
+        - id
+        - title
+        - status
+        - priority
+        - payload
+        - retryCount
+        - maxRetries
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Universally unique identifier (UUIDv4)
+          example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Short human-readable title
+          example: "Generate Q3 Financial Summary Report"
+        description:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+          description: Detailed human or system instructions
+          example: "Aggregate cross-departmental ledger transactions into monthly PDF digest"
+        status:
+          $ref: "#/components/schemas/TaskStatusEnum"
+        priority:
+          $ref: "#/components/schemas/TaskPriorityEnum"
+        payload:
+          type: object
+          description: Input parameters and data needed for task execution
+          additionalProperties: true
+          example:
+            quarter: "Q3"
+            year: 2026
+            format: "PDF"
+        result:
+          type:
+            - object
+            - "null"
+          description: Output payload or completion artifacts produced upon successful execution
+          additionalProperties: true
+          example:
+            reportUrl: "https://storage.{{SYSTEM_DOMAIN:-example.com}}/reports/2026-q3.pdf"
+            bytesGenerated: 2450124
+        error:
+          type:
+            - string
+            - "null"
+          description: Error details if task execution failed
+          example: null
+        retryCount:
+          type: integer
+          minimum: 0
+          description: Current number of attempts executed
+          example: 0
+        maxRetries:
+          type: integer
+          minimum: 0
+          default: 3
+          description: Maximum allowed retries before permanent failure
+          example: 3
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp in ISO 8601 UTC
+          example: "2026-09-21T08:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last modification timestamp in ISO 8601 UTC
+          example: "2026-09-21T08:32:15Z"
+        completedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Completion or terminal failure timestamp in ISO 8601 UTC
+          example: "2026-09-21T08:32:15Z"
+
+    CreateTaskRequest:
+      type: object
+      description: Input schema for creating a new task
+      required:
+        - title
+        - payload
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Summary title of the task
+          example: "Import Customer Data Batch"
+        description:
+          type: string
+          maxLength: 2000
+          description: Optional extended markdown or text instructions
+          example: "Ingest CSV records from customer s3 drop bucket"
+        priority:
+          $ref: "#/components/schemas/TaskPriorityEnum"
+          default: "MEDIUM"
+        payload:
+          type: object
+          description: Arbitrary structured parameters for task execution
+          additionalProperties: true
+          example:
+            bucket: "incoming-data-ingest"
+            fileKey: "batches/2026-09-21-customers.csv"
+        metadata:
+          type: object
+          description: Traceability and correlation metadata
+          additionalProperties: true
+          example:
+            department: "Analytics"
+            initiatedBy: "usr_8823f9b2"
+        maxRetries:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 3
+          description: Override default retry ceiling
+          example: 3
+
+    UpdateTaskRequest:
+      type: object
+      description: Partial modification schema for an existing task
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Updated title
+          example: "Import Customer Data Batch (Escalated)"
+        description:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+          description: Updated description
+          example: "Escalated priority due to end-of-quarter SLA requirement"
+        status:
+          $ref: "#/components/schemas/TaskStatusEnum"
+        priority:
+          $ref: "#/components/schemas/TaskPriorityEnum"
+        payload:
+          type: object
+          description: Updated task payload parameters
+          additionalProperties: true
+        metadata:
+          type: object
+          description: Updated metadata
+          additionalProperties: true
+
+    TaskListResponse:
+      type: object
+      description: Paginated response envelope for tasks
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+        - hasMore
+      properties:
+        items:
+          type: array
+          description: List of task entities for current page
+          items:
+            $ref: "#/components/schemas/Task"
+        totalCount:
+          type: integer
+          minimum: 0
+          description: Total matching items across the entire dataset
+          example: 42
+        limit:
+          type: integer
+          minimum: 1
+          description: Maximum items requested per page
+          example: 20
+        offset:
+          type: integer
+          minimum: 0
+          description: Pagination offset applied
+          example: 0
+        hasMore:
+          type: boolean
+          description: True if additional records exist after this window
+          example: true
+
+    PublishEventRequest:
+      type: object
+      description: Standard domain event publishing envelope
+      required:
+        - eventType
+        - source
+        - payload
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Unique event identifier; if omitted, backend generates a UUIDv4
+          example: "a2d1f93e-5b16-43b9-8e43-85f2b8493122"
+        eventType:
+          type: string
+          minLength: 3
+          maxLength: 128
+          description: Reverse-DNS or dot-separated domain event identifier
+          example: "user.account.upgraded"
+        source:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Originating service or component identifier
+          example: "billing-service"
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 256
+          description: Deterministic key to prevent duplicate broker publication
+          example: "idemp_20260921_usr9921_tier_enterprise"
+        timestamp:
+          type: string
+          format: date-time
+          description: Client-recorded occurrence timestamp in ISO 8601 UTC
+          example: "2026-09-21T10:30:00Z"
+        payload:
+          type: object
+          description: Domain-specific event body
+          additionalProperties: true
+          example:
+            userId: "usr_9921004"
+            previousTier: "PRO"
+            newTier: "ENTERPRISE"
+            seatCount: 50
+
+    PublishEventResponse:
+      type: object
+      description: Broker publishing confirmation
+      required:
+        - eventId
+        - status
+        - timestamp
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Confirmed event identifier
+          example: "a2d1f93e-5b16-43b9-8e43-85f2b8493122"
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PUBLISHED
+          description: Status of the ingestion into the message broker
+          example: "QUEUED"
+        partition:
+          type:
+            - integer
+            - "null"
+          description: Assigned target message partition/shard ID if applicable
+          example: 3
+        timestamp:
+          type: string
+          format: date-time
+          description: Ingestion confirmation timestamp in ISO 8601 UTC
+          example: "2026-09-21T10:30:01Z"
+
+    HealthCheckResponse:
+      type: object
+      description: Service health and dependency readiness probe status
+      required:
+        - status
+        - uptimeSeconds
+        - version
+        - timestamp
+        - checks
+      properties:
+        status:
+          type: string
+          enum:
+            - UP
+            - DEGRADED
+            - DOWN
+          description: Overall composite operational status
+          example: "UP"
+        uptimeSeconds:
+          type: integer
+          minimum: 0
+          description: Number of continuous seconds the service process has been running
+          example: 142850
+        version:
+          type: string
+          description: Application build/semantic version tag
+          example: "1.0.0"
+        timestamp:
+          type: string
+          format: date-time
+          description: Probe execution timestamp in ISO 8601 UTC
+          example: "2026-09-21T12:00:00Z"
+        checks:
+          type: object
+          description: Granular status of essential backing dependencies
+          required:
+            - database
+          properties:
+            database:
+              type: object
+              required:
+                - status
+                - latencyMs
+              properties:
+                status:
+                  type: string
+                  enum: [UP, DOWN]
+                  example: "UP"
+                latencyMs:
+                  type: integer
+                  minimum: 0
+                  example: 2
+                message:
+                  type: string
+                  example: "PostgreSQL read-write replica connected"
+            redis:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [UP, DOWN]
+                  example: "UP"
+                latencyMs:
+                  type: integer
+                  minimum: 0
+                  example: 1
+                message:
+                  type: string
+                  example: "Redis cluster ping OK"
+
+    InvalidParam:
+      type: object
+      description: Detailed field-level validation failure descriptor
+      required:
+        - name
+        - reason
+        - code
+      properties:
+        name:
+          type: string
+          description: JSON pointer, parameter, or field path that failed validation
+          example: "title"
+        reason:
+          type: string
+          description: Human-readable error description
+          example: "Field 'title' cannot be empty or exceed 255 characters"
+        code:
+          type: string
+          description: Machine-readable error identifier
+          example: "REQUIRED_FIELD_MISSING"
+
+    ProblemDetails:
+      type: object
+      description: RFC 7807 Problem Details for HTTP APIs error response representation
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - code
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI reference identifying the problem type specification
+          example: "https://errors.{{SYSTEM_DOMAIN:-example.com}}/validation-error"
+        title:
+          type: string
+          description: Short human-readable summary of the problem type
+          example: "Bad Request"
+        status:
+          type: integer
+          description: HTTP status code generated by the origin server for this occurrence
+          example: 400
+        detail:
+          type: string
+          description: Human-readable explanation specific to this occurrence of the problem
+          example: "Request payload failed validation on 2 fields"
+        instance:
+          type: string
+          description: Relative URI reference identifying the specific occurrence of the problem
+          example: "/api/v1/tasks"
+        code:
+          type: string
+          description: Stable application error code for client error branching
+          example: "ERR_VALIDATION_FAILED"
+        invalidParams:
+          type: array
+          description: List of invalid request parameters or payload fields
+          items:
+            $ref: "#/components/schemas/InvalidParam"
+
+  responses:
+    BadRequest:
+      description: 400 Bad Request - Payload or parameter validation failure (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+          examples:
+            validationFailure:
+              summary: Validation Error with Invalid Parameters
+              value:
+                type: "https://errors.{{SYSTEM_DOMAIN:-example.com}}/validation-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Request payload failed validation on 2 fields"
+                instance: "/api/v1/tasks"
+                code: "ERR_VALIDATION_FAILED"
+                invalidParams:
+                  - name: "title"
+                    reason: "Field 'title' must be between 1 and 255 characters"
+                    code: "STRING_LENGTH_OUT_OF_RANGE"
+                  - name: "priority"
+                    reason: "Value 'ULTRA' is not a valid TaskPriorityEnum member"
+                    code: "INVALID_ENUM_VALUE"
+
+    Unauthorized:
+      description: 401 Unauthorized - Missing, invalid, or expired Bearer token (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+          examples:
+            unauthorizedError:
+              summary: Missing or Expired JWT Bearer Token
+              value:
+                type: "https://errors.{{SYSTEM_DOMAIN:-example.com}}/unauthorized"
+                title: "Unauthorized"
+                status: 401
+                detail: "Bearer token signature expired or signature validation failed"
+                instance: "/api/v1/tasks"
+                code: "ERR_AUTHENTICATION_FAILED"
+
+    NotFound:
+      description: 404 Not Found - Target resource does not exist (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+          examples:
+            taskNotFoundError:
+              summary: Task Resource Not Found
+              value:
+                type: "https://errors.{{SYSTEM_DOMAIN:-example.com}}/not-found"
+                title: "Resource Not Found"
+                status: 404
+                detail: "Task with ID '7c9e6679-7425-40de-944b-e07fc1f90ae7' was not found"
+                instance: "/api/v1/tasks/7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                code: "ERR_TASK_NOT_FOUND"
+
+    InternalServerError:
+      description: 500 Internal Server Error - Unexpected server exception (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+          examples:
+            serverError:
+              summary: Internal Server Error
+              value:
+                type: "https://errors.{{SYSTEM_DOMAIN:-example.com}}/internal-server-error"
+                title: "Internal Server Error"
+                status: 500
+                detail: "An unexpected internal error occurred while processing the request"
+                instance: "/api/v1/tasks"
+                code: "ERR_INTERNAL_SERVER_ERROR"
