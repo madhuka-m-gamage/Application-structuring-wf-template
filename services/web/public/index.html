@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>System Dashboard | Design-to-Deployment</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo-group">
+        <div class="logo-badge">SYSTEM</div>
+        <div>
+          <h1>Design-to-Deployment Dashboard</h1>
+          <p class="subtitle">Multi-Tier Microservices Orchestration (Web, API, Worker, Cloud SQL, Pub/Sub)</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="system-status-indicator" class="badge badge-info">Connecting...</span>
+        <button id="btn-refresh" class="btn btn-secondary">Refresh</button>
+      </div>
+    </header>
+
+    <!-- System Health Topology -->
+    <section class="card health-card">
+      <h2>Microservices Topology & Health Status</h2>
+      <div class="services-grid">
+        <div class="service-chip" id="chip-web">
+          <div class="service-name">Web Client</div>
+          <div class="service-type">Cloud Run SSR / Port 3000</div>
+          <div class="service-status status-healthy">Healthy</div>
+        </div>
+        <div class="service-chip" id="chip-api">
+          <div class="service-name">API Gateway</div>
+          <div class="service-type">Cloud Run REST / Port 8080</div>
+          <div class="service-status" id="api-status-text">Checking...</div>
+        </div>
+        <div class="service-chip" id="chip-worker">
+          <div class="service-name">Background Worker</div>
+          <div class="service-type">Cloud Run Subscriber</div>
+          <div class="service-status status-healthy">Subscribed</div>
+        </div>
+        <div class="service-chip" id="chip-postgres">
+          <div class="service-name">PostgreSQL 16</div>
+          <div class="service-type">Cloud SQL / Port 5432</div>
+          <div class="service-status" id="db-status-text">Checking...</div>
+        </div>
+        <div class="service-chip" id="chip-pubsub">
+          <div class="service-name">Cloud Pub/Sub</div>
+          <div class="service-type">Event Bus / Port 8085</div>
+          <div class="service-status" id="pubsub-status-text">Checking...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content: Task Dispatch & Live Table -->
+    <main class="main-layout">
+      <!-- Create Task Card -->
+      <section class="card task-form-card">
+        <h2>Submit Asynchronous Workload</h2>
+        <form id="task-form">
+          <div class="form-group">
+            <label for="task-title">Task Title *</label>
+            <input type="text" id="task-title" required placeholder="e.g. Generate Analytical Summary #104" />
+          </div>
+
+          <div class="form-group">
+            <label for="task-desc">Description</label>
+            <textarea id="task-desc" rows="3" placeholder="Context or instructions for background execution"></textarea>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="task-priority">Priority</label>
+              <select id="task-priority">
+                <option value="LOW">LOW</option>
+                <option value="MEDIUM" selected>MEDIUM</option>
+                <option value="HIGH">HIGH</option>
+                <option value="CRITICAL">CRITICAL</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="task-action">Action Type</label>
+              <select id="task-action">
+                <option value="data_sync">Data Sync</option>
+                <option value="report_generation">Report Generation</option>
+                <option value="batch_processing">Batch Processing</option>
+                <option value="email_dispatch">Email Dispatch</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="task-payload">Custom JSON Payload</label>
+            <textarea id="task-payload" rows="3" class="code-font">{ "records": 50, "mode": "async" }</textarea>
+          </div>
+
+          <button type="submit" id="btn-submit-task" class="btn btn-primary">Dispatch Task to API</button>
+        </form>
+      </section>
+
+      <!-- Task History & State Machine -->
+      <section class="card task-list-card">
+        <div class="section-header">
+          <h2>Task Lifecycle & Real-Time Queue</h2>
+          <span class="live-tag">● Live Auto-Refresh</span>
+        </div>
+
+        <div class="table-container">
+          <table class="tasks-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody id="tasks-tbody">
+              <tr>
+                <td colspan="5" class="empty-state">Loading tasks...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

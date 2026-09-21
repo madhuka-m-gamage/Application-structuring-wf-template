@@ -75,7 +75,7 @@ function handleInMemoryQuery(text, params) {
     return { rows: [{ '?column?': 1 }], rowCount: 1 };
   }
 
-  if (sql.includes('FROM TASKS WHERE ID =')) {
+  if (sql.startsWith('SELECT') && sql.includes('FROM TASKS WHERE ID =')) {
     const id = params[0];
     const task = memoryStore.tasks.find((t) => t.id === id);
     return { rows: task ? [task] : [], rowCount: task ? 1 : 0 };

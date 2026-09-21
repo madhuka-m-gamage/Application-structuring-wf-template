@@ -1,7 +1,7 @@
 {
-  "name": "@template/api",
+  "name": "@template/worker",
   "version": "1.0.0",
-  "description": "Backend API Service for System Design-to-Deployment Template",
+  "description": "Background Event Worker Service for System Design-to-Deployment Template",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

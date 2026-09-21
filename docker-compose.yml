@@ -1,0 +1,189 @@
+# ==============================================================================
+# Local Multi-Tier Container Orchestration
+# System Design-to-Deployment Workflow Template
+# Components: Web (SPA), API Gateway, Background Worker, Cloud SQL (PostgreSQL 16),
+#             Cloud Pub/Sub Local Emulator
+# ==============================================================================
+services:
+
+  # ----------------------------------------------------------------------------
+  # 1. Relational Persistence: PostgreSQL 16
+  # Initializes database with contracts/database/schema.sql
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: template-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app_db
+    volumes:
+      - ./contracts/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - app-network
+
+  # ----------------------------------------------------------------------------
+  # 2. Asynchronous Messaging: Google Cloud Pub/Sub Emulator
+  # Local message broker for event-driven pub/sub choreography
+  # ----------------------------------------------------------------------------
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    container_name: template-pubsub-emulator
+    restart: unless-stopped
+    command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=local-project
+    ports:
+      - "8085:8085"
+    environment:
+      PUBSUB_PROJECT_ID: local-project
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8085 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app-network
+
+  # ----------------------------------------------------------------------------
+  # 2b. Pub/Sub Auto-Provisioning Script
+  # Automatically creates topics, dead-letter queues, and push subscriptions
+  # ----------------------------------------------------------------------------
+  pubsub-init:
+    image: curlimages/curl:latest
+    container_name: template-pubsub-init
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    volumes:
+      - ./services/worker/scripts/init-pubsub.sh:/init-pubsub.sh:ro
+    entrypoint: ["/bin/sh", "/init-pubsub.sh"]
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      PUBSUB_PROJECT_ID: local-project
+      WORKER_PUSH_ENDPOINT: http://worker:8080/events/push
+    networks:
+      - app-network
+
+  # ----------------------------------------------------------------------------
+  # 3. Ingress Gateway & Domain Service: Backend API
+  # Stateless REST API executing domain logic & transactional outbox staging
+  # ----------------------------------------------------------------------------
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: template-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pubsub-emulator:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      HOST: 0.0.0.0
+      NODE_ENV: development
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/app_db
+      DB_POOL_MAX: 10
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      PUBSUB_PROJECT_ID: local-project
+      PUBSUB_TOPIC_TASKS: tasks
+      PUBSUB_TOPIC_TASK_EVENTS: task-events
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - app-network
+
+  # ----------------------------------------------------------------------------
+  # 4. Asynchronous Event Processor: Background Worker
+  # Consumes push messages from Pub/Sub, executes workloads, updates database
+  # ----------------------------------------------------------------------------
+  worker:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    container_name: template-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pubsub-emulator:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    environment:
+      PORT: 8080
+      HOST: 0.0.0.0
+      NODE_ENV: development
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/app_db
+      DB_POOL_MAX: 5
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      PUBSUB_PROJECT_ID: local-project
+      PUBSUB_TOPIC_TASK_EVENTS: task-events
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - app-network
+
+  # ----------------------------------------------------------------------------
+  # 5. Client Application: Web Frontend SPA
+  # Responsive dashboard serving client assets and proxying API calls
+  # ----------------------------------------------------------------------------
+  web:
+    build:
+      context: ./services/web
+      dockerfile: Dockerfile
+    container_name: template-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      API_URL: http://api:8080
+      NODE_ENV: development
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - app-network
+
+# ------------------------------------------------------------------------------
+# Shared Networks & Volumes
+# ------------------------------------------------------------------------------
+networks:
+  app-network:
+    driver: bridge
+    name: template-app-network
+
+volumes:
+  postgres_data:
+    name: template-postgres-data
