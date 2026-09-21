@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server.json",
+  "name": "github-mcp-server",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server configuration for GitHub repository tools. Empowers AI coding agents to automate pull request creation and code review, triage issues, and monitor CI/CD GitHub Actions workflow execution.",
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}",
+        "GITHUB_OWNER": "${GITHUB_OWNER}",
+        "GITHUB_REPO": "${GITHUB_REPO}"
+      }
+    }
+  },
+  "runtime": {
+    "engine": "node",
+    "package": "@modelcontextprotocol/server-github",
+    "transport": "stdio"
+  },
+  "environment": {
+    "variables": {
+      "GITHUB_PERSONAL_ACCESS_TOKEN": {
+        "type": "string",
+        "required": true,
+        "description": "GitHub Personal Access Token (classic or fine-grained) with 'repo' and 'workflow' scopes."
+      },
+      "GITHUB_OWNER": {
+        "type": "string",
+        "required": false,
+        "description": "Default GitHub organization or user handle owning the target repository."
+      },
+      "GITHUB_REPO": {
+        "type": "string",
+        "required": false,
+        "description": "Default GitHub repository name (e.g., 'Application-structuring-wf-template')."
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "create_pull_request",
+      "category": "pr_management",
+      "description": "Create a new pull request in the repository from a feature branch into the base branch.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Pull request title adhering to Conventional Commits (e.g., 'feat: add Pass 4 MCP server configuration hub')."
+          },
+          "head": {
+            "type": "string",
+            "description": "The name of the branch where your changes are implemented."
+          },
+          "base": {
+            "type": "string",
+            "default": "main",
+            "description": "The name of the branch you want the changes pulled into."
+          },
+          "body": {
+            "type": "string",
+            "description": "Detailed markdown body of the pull request detailing context, changes, and verification evidence."
+          },
+          "draft": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to create the pull request as an in-progress draft."
+          }
+        },
+        "required": ["title", "head", "base"]
+      }
+    },
+    {
+      "name": "get_pull_request",
+      "category": "pr_management",
+      "description": "Retrieve comprehensive details for a pull request, including state, mergeability, CI status checks, and author.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pull_number": {
+            "type": "integer",
+            "description": "The pull request number."
+          }
+        },
+        "required": ["pull_number"]
+      }
+    },
+    {
+      "name": "list_pull_requests",
+      "category": "pr_management",
+      "description": "List pull requests in the repository filtered by state, base, head, or sort direction.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed", "all"],
+            "default": "open",
+            "description": "Filter pull requests by state."
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 30,
+            "description": "Results per page (max 100)."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_pull_request_review",
+      "category": "pr_management",
+      "description": "Submit a formal code review on a pull request with comments and an event decision (APPROVE, REQUEST_CHANGES, COMMENT).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pull_number": {
+            "type": "integer",
+            "description": "The pull request number."
+          },
+          "event": {
+            "type": "string",
+            "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"],
+            "description": "The review action to perform."
+          },
+          "body": {
+            "type": "string",
+            "description": "The review summary markdown comment."
+          },
+          "comments": {
+            "type": "array",
+            "description": "Optional list of line-specific review comments (path, position, body).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string" },
+                "position": { "type": "integer" },
+                "body": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["pull_number", "event"]
+      }
+    },
+    {
+      "name": "create_issue",
+      "category": "issue_management",
+      "description": "Create a new issue in the GitHub repository with title, markdown body, labels, and assignees.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Issue title."
+          },
+          "body": {
+            "type": "string",
+            "description": "Detailed description of the issue or bug."
+          },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of label names (e.g., ['bug', 'pass-4', 'backend'])."
+          },
+          "assignees": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of GitHub usernames to assign."
+          }
+        },
+        "required": ["title"]
+      }
+    },
+    {
+      "name": "get_issue",
+      "category": "issue_management",
+      "description": "Retrieve details and metadata of an issue by its issue number.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "issue_number": {
+            "type": "integer",
+            "description": "The issue number to inspect."
+          }
+        },
+        "required": ["issue_number"]
+      }
+    },
+    {
+      "name": "list_issues",
+      "category": "issue_management",
+      "description": "List issues for the repository with filters by state, labels, milestone, and sort criteria.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed", "all"],
+            "default": "open",
+            "description": "Issue state."
+          },
+          "labels": {
+            "type": "string",
+            "description": "Comma-separated list of label names."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_issue",
+      "category": "issue_management",
+      "description": "Update an existing issue's title, body description, state (open/closed), or labels.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "issue_number": {
+            "type": "integer",
+            "description": "The issue number."
+          },
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed"],
+            "description": "New state."
+          },
+          "title": {
+            "type": "string",
+            "description": "New title."
+          },
+          "body": {
+            "type": "string",
+            "description": "New body markdown."
+          }
+        },
+        "required": ["issue_number"]
+      }
+    },
+    {
+      "name": "list_workflow_runs",
+      "category": "workflow_inspection",
+      "description": "List GitHub Actions CI/CD workflow runs filtered by workflow file, branch, or execution status.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "description": "Workflow file name (e.g., 'ci.yml', 'deploy.yml') or integer ID."
+          },
+          "branch": {
+            "type": "string",
+            "description": "Filter runs by Git branch name."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["completed", "in_progress", "queued"],
+            "description": "Filter by execution status."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_workflow_run",
+      "category": "workflow_inspection",
+      "description": "Inspect execution status, conclusion (success/failure/cancelled), duration, and jobs of a GitHub Actions run.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "integer",
+            "description": "The unique GitHub Actions workflow run ID."
+          }
+        },
+        "required": ["run_id"]
+      }
+    },
+    {
+      "name": "get_workflow_run_logs",
+      "category": "workflow_inspection",
+      "description": "Retrieve step execution logs and failure output for a workflow run to diagnose CI/CD build failures.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "integer",
+            "description": "The workflow run ID."
+          }
+        },
+        "required": ["run_id"]
+      }
+    }
+  ],
+  "security": {
+    "recommended_token_scopes": [
+      "repo:status",
+      "repo_deployment",
+      "public_repo",
+      "actions:read",
+      "pull_requests:write"
+    ],
+    "notes": "Use GitHub fine-grained Personal Access Tokens scoped exclusively to this repository. Never grant admin or delete privileges to autonomous agent credentials."
+  }
+}

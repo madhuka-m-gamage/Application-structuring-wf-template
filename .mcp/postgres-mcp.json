@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server.json",
+  "name": "postgres-mcp-server",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server configuration for PostgreSQL relational database. Enables AI agents to inspect table structures, verify database migrations, query schemas, and perform safe read-only operational diagnostics.",
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=${POSTGRES_SSLMODE}"
+      ],
+      "env": {
+        "POSTGRES_HOST": "${POSTGRES_HOST:-localhost}",
+        "POSTGRES_PORT": "${POSTGRES_PORT:-5432}",
+        "POSTGRES_USER": "${POSTGRES_USER:-postgres}",
+        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:-postgres}",
+        "POSTGRES_DB": "${POSTGRES_DB:-taskdb}",
+        "POSTGRES_SSLMODE": "${POSTGRES_SSLMODE:-disable}"
+      }
+    }
+  },
+  "connection": {
+    "host": "${POSTGRES_HOST:-localhost}",
+    "port": 5432,
+    "user": "${POSTGRES_USER:-postgres}",
+    "password": "${POSTGRES_PASSWORD:-postgres}",
+    "dbname": "${POSTGRES_DB:-taskdb}",
+    "sslmode": "${POSTGRES_SSLMODE:-disable}",
+    "connectionString": "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=${POSTGRES_SSLMODE}",
+    "pool_config": {
+      "max_connections": 5,
+      "connection_timeout_ms": 5000,
+      "statement_timeout_ms": 3000
+    }
+  },
+  "tools": [
+    {
+      "name": "query",
+      "category": "database_queries",
+      "description": "Execute a SQL query against the PostgreSQL database. In AI agent workflows, this tool is restricted to read-only statements (SELECT, EXPLAIN) with a strict 3-second statement timeout.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sql": {
+            "type": "string",
+            "description": "The SQL query to execute. Example: 'SELECT id, title, status FROM tasks LIMIT 10;'"
+          },
+          "params": {
+            "type": "array",
+            "description": "Optional array of positional parameter values ($1, $2, ...) to prevent SQL injection.",
+            "items": {}
+          }
+        },
+        "required": ["sql"]
+      }
+    },
+    {
+      "name": "describe_table",
+      "category": "schema_inspection",
+      "description": "Inspect column names, data types, nullability, default values, primary keys, foreign key constraints, and indices of a specific table in PostgreSQL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string",
+            "description": "Name of the table to inspect (e.g., 'tasks', 'users', 'outbox_events', 'idempotency_keys')."
+          },
+          "schema": {
+            "type": "string",
+            "default": "public",
+            "description": "PostgreSQL schema namespace (default: 'public')."
+          }
+        },
+        "required": ["table_name"]
+      }
+    },
+    {
+      "name": "list_tables",
+      "category": "schema_inspection",
+      "description": "Enumerate all user tables, views, and materialized views in the connected database schema.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "default": "public",
+            "description": "PostgreSQL schema namespace to filter by."
+          }
+        }
+      }
+    },
+    {
+      "name": "check_migrations",
+      "category": "migration_verification",
+      "description": "Inspect the schema migration tracking table (e.g. 'schema_migrations', 'flyway_schema_history', or 'goose_db_version') to determine the current applied database version, applied timestamps, and dirty migration states.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "migration_table": {
+            "type": "string",
+            "default": "schema_migrations",
+            "description": "Name of the migration tracking table (default: 'schema_migrations')."
+          }
+        }
+      }
+    }
+  ],
+  "security": {
+    "read_only_enforcement": true,
+    "forbidden_commands": [
+      "DROP TABLE",
+      "DROP DATABASE",
+      "TRUNCATE",
+      "ALTER TABLE",
+      "DELETE FROM",
+      "GRANT",
+      "REVOKE"
+    ],
+    "notes": "Connect agents using a read-only database role (e.g., 'readonly_agent') with SELECT rights only. Never grant DDL or SUPERUSER rights to the MCP connection."
+  }
+}

@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server.json",
+  "name": "gcp-mcp-server",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server configuration for Google Cloud Platform tools. Enables autonomous AI agents to inspect Cloud Run services/revisions, fetch Cloud Logging error logs, retrieve Secret Manager payloads, and inspect Cloud Pub/Sub topics and subscriptions.",
+  "mcpServers": {
+    "gcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@google-cloud/mcp-server-gcp"
+      ],
+      "env": {
+        "GCP_PROJECT_ID": "${GCP_PROJECT_ID}",
+        "GCP_REGION": "${GCP_REGION:-us-central1}",
+        "GOOGLE_APPLICATION_CREDENTIALS": "${GOOGLE_APPLICATION_CREDENTIALS}"
+      }
+    }
+  },
+  "runtime": {
+    "engine": "node",
+    "package": "@google-cloud/mcp-server-gcp",
+    "alternative_command": "python -m gcp_mcp_server",
+    "transport": "stdio"
+  },
+  "environment": {
+    "variables": {
+      "GCP_PROJECT_ID": {
+        "type": "string",
+        "required": true,
+        "description": "The Google Cloud Project ID hosting Cloud Run, Cloud Logging, Pub/Sub, and Secret Manager."
+      },
+      "GCP_REGION": {
+        "type": "string",
+        "required": false,
+        "default": "us-central1",
+        "description": "Default Google Cloud regional location for Cloud Run services and regional resources."
+      },
+      "GOOGLE_APPLICATION_CREDENTIALS": {
+        "type": "string",
+        "required": false,
+        "description": "Absolute file path to the service account JSON key file. If omitted, Google Application Default Credentials (ADC) from 'gcloud auth application-default login' is used."
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "cloudrun_list_services",
+      "category": "cloud_run",
+      "description": "List all Google Cloud Run v2 services deployed within the configured project and region.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string",
+            "description": "GCP region (defaults to configured GCP_REGION if omitted)."
+          }
+        }
+      }
+    },
+    {
+      "name": "cloudrun_get_service",
+      "category": "cloud_run",
+      "description": "Inspect detailed specification, active ingress settings, traffic routing percentages, URL, and conditions of a specific Cloud Run service.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "service_name": {
+            "type": "string",
+            "description": "Name of the Cloud Run service (e.g., 'task-api', 'task-worker', 'task-web')."
+          },
+          "region": {
+            "type": "string",
+            "description": "GCP region of the service."
+          }
+        },
+        "required": ["service_name"]
+      }
+    },
+    {
+      "name": "cloudrun_list_revisions",
+      "category": "cloud_run",
+      "description": "List all active and historical revisions for a specified Cloud Run service.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "service_name": {
+            "type": "string",
+            "description": "Name of the Cloud Run service."
+          },
+          "region": {
+            "type": "string",
+            "description": "GCP region of the service."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "description": "Maximum number of revisions to return."
+          }
+        },
+        "required": ["service_name"]
+      }
+    },
+    {
+      "name": "cloudrun_get_revision",
+      "category": "cloud_run",
+      "description": "Inspect container image tag, CPU/RAM resource limits, concurrency, environment variables, and startup probe configuration of a specific Cloud Run revision.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "service_name": {
+            "type": "string",
+            "description": "Name of the Cloud Run service."
+          },
+          "revision_name": {
+            "type": "string",
+            "description": "Unique revision identifier (e.g., 'task-api-00042-xyz')."
+          },
+          "region": {
+            "type": "string",
+            "description": "GCP region of the revision."
+          }
+        },
+        "required": ["service_name", "revision_name"]
+      }
+    },
+    {
+      "name": "cloudlogging_fetch_errors",
+      "category": "cloud_logging",
+      "description": "Retrieve recent ERROR, CRITICAL, and EMERGENCY severity log entries with stack traces across services.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "service_name": {
+            "type": "string",
+            "description": "Filter by Cloud Run service name (e.g., 'task-api'). Optional."
+          },
+          "time_window_minutes": {
+            "type": "integer",
+            "default": 30,
+            "description": "Time window in minutes to search backward from current timestamp."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Maximum number of log entries to retrieve."
+          }
+        }
+      }
+    },
+    {
+      "name": "cloudlogging_query_logs",
+      "category": "cloud_logging",
+      "description": "Execute an advanced Cloud Logging filter expression against project logs with timestamp bounds.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Cloud Logging filter query (e.g., 'resource.type=\"cloud_run_revision\" AND textPayload=~\"panic\"')."
+          },
+          "start_time": {
+            "type": "string",
+            "description": "ISO 8601 timestamp string representing window start."
+          },
+          "end_time": {
+            "type": "string",
+            "description": "ISO 8601 timestamp string representing window end."
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum number of matching log entries to return."
+          }
+        },
+        "required": ["filter"]
+      }
+    },
+    {
+      "name": "secretmanager_list_secrets",
+      "category": "secret_manager",
+      "description": "List all secrets defined in Google Cloud Secret Manager for the configured project (names, replication, and labels only; payloads are not returned).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "page_size": {
+            "type": "integer",
+            "default": 50,
+            "description": "Maximum number of secrets to list per page."
+          }
+        }
+      }
+    },
+    {
+      "name": "secretmanager_get_payload",
+      "category": "secret_manager",
+      "description": "Retrieve the decrypted payload of a specific secret version for environment validation or local debug emulation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "secret_id": {
+            "type": "string",
+            "description": "Secret identifier (e.g., 'database-password', 'jwt-signing-key')."
+          },
+          "version": {
+            "type": "string",
+            "default": "latest",
+            "description": "Secret version number or 'latest'."
+          }
+        },
+        "required": ["secret_id"]
+      }
+    },
+    {
+      "name": "pubsub_list_topics",
+      "category": "pubsub",
+      "description": "List all Google Cloud Pub/Sub topics defined within the GCP project.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "pubsub_get_topic",
+      "category": "pubsub",
+      "description": "Inspect topic configuration including message retention duration, KMS encryption keys, and schema settings.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "topic_id": {
+            "type": "string",
+            "description": "Name of the topic (e.g., 'task-events', 'task-events-dlq')."
+          }
+        },
+        "required": ["topic_id"]
+      }
+    },
+    {
+      "name": "pubsub_list_subscriptions",
+      "category": "pubsub",
+      "description": "List all subscriptions attached to a specific Pub/Sub topic, including push endpoints, ack deadlines, and filter policies.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "topic_id": {
+            "type": "string",
+            "description": "Pub/Sub topic ID to inspect subscriptions for."
+          }
+        },
+        "required": ["topic_id"]
+      }
+    },
+    {
+      "name": "pubsub_get_subscription_metrics",
+      "category": "pubsub",
+      "description": "Retrieve subscription health telemetry including backlog unacknowledged message count, oldest message age, and dead-letter queue config.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Subscription name (e.g., 'task-worker-sub')."
+          }
+        },
+        "required": ["subscription_id"]
+      }
+    }
+  ],
+  "security": {
+    "least_privilege_roles": [
+      "roles/run.viewer",
+      "roles/logging.viewer",
+      "roles/pubsub.viewer",
+      "roles/secretmanager.secretAccessor"
+    ],
+    "notes": "Do NOT grant Owner or Editor roles to MCP agent credentials. Use dedicated read-only service accounts for inspecting production environments."
+  }
+}
