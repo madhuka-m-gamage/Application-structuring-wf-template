@@ -68,6 +68,14 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "▶ Selected production deployment tag: $TAG"
 
+      - name: Check WIF Secrets Configuration
+        id: check-wif
+        run: |
+          if [ -z "${{ env.WIF_PROVIDER }}" ] || [ -z "${{ env.WIF_SERVICE_ACCOUNT }}" ]; then
+            echo "::error title=WIF Not Configured::Workload Identity Federation credentials (GCP_WIF_PROVIDER and GCP_WIF_SERVICE_ACCOUNT) are not configured in repository secrets. See USER-GUIDE.md for setup instructions."
+            exit 1
+          fi
+
       - name: Authenticate to Google Cloud via WIF (Keyless)
         id: auth
         uses: google-github-actions/auth@v2
