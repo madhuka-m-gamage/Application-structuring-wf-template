@@ -1,0 +1,42 @@
+# ==============================================================================
+# Production Environment - terraform.tfvars.example
+# ==============================================================================
+
+project_id  = "my-gcp-prod-project-id"
+region      = "us-central1"
+github_repo = "my-github-org/my-repository"
+
+# Networking
+subnet_cidr    = "10.20.0.0/20"
+connector_cidr = "10.28.0.0/28"
+immutable_tags = true
+
+# Cloud SQL (PostgreSQL 16) - Production High Availability Tier
+db_version             = "POSTGRES_16"
+db_tier                = "db-custom-2-7680"
+db_availability_type   = "REGIONAL"
+db_disk_size           = 50
+db_pitr_enabled        = true
+db_retained_backups    = 30
+db_deletion_protection = true
+db_name                = "app_db"
+db_user                = "app_user"
+
+# Cloud Run Services - Warm instances (min_instances >= 1) & High Concurrency
+api_image         = "us-docker.pkg.dev/cloudrun/container/hello"
+api_min_instances = 1
+api_max_instances = 20
+api_cpu           = "2"
+api_memory        = "1Gi"
+
+web_image         = "us-docker.pkg.dev/cloudrun/container/hello"
+web_min_instances = 1
+web_max_instances = 20
+web_cpu           = "1"
+web_memory        = "1Gi"
+
+worker_image         = "us-docker.pkg.dev/cloudrun/container/hello"
+worker_min_instances = 1
+worker_max_instances = 10
+worker_cpu           = "2"
+worker_memory        = "1Gi"

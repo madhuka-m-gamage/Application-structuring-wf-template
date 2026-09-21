@@ -1,0 +1,42 @@
+# ==============================================================================
+# Development Environment - terraform.tfvars.example
+# ==============================================================================
+
+project_id  = "my-gcp-dev-project-id"
+region      = "us-central1"
+github_repo = "my-github-org/my-repository"
+
+# Networking
+subnet_cidr    = "10.0.0.0/20"
+connector_cidr = "10.8.0.0/28"
+immutable_tags = true
+
+# Cloud SQL (PostgreSQL 16) - Scale-to-zero / low-cost tier
+db_version          = "POSTGRES_16"
+db_tier             = "db-custom-1-3840"
+db_availability_type = "ZONAL"
+db_disk_size        = 20
+db_pitr_enabled     = false
+db_retained_backups = 3
+db_deletion_protection = false
+db_name             = "app_db"
+db_user             = "app_user"
+
+# Cloud Run Services (Scale-to-zero enabled for development cost savings)
+api_image         = "us-docker.pkg.dev/cloudrun/container/hello"
+api_min_instances = 0
+api_max_instances = 2
+api_cpu           = "1"
+api_memory        = "512Mi"
+
+web_image         = "us-docker.pkg.dev/cloudrun/container/hello"
+web_min_instances = 0
+web_max_instances = 2
+web_cpu           = "1"
+web_memory        = "512Mi"
+
+worker_image         = "us-docker.pkg.dev/cloudrun/container/hello"
+worker_min_instances = 0
+worker_max_instances = 2
+worker_cpu           = "1"
+worker_memory        = "512Mi"
